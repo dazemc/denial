@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../theme/shell_theme.dart';
 import '../shell_backdrop_blur.dart';
+import 'shade_reference_geometry.dart';
 
 /// A pill-shaped horizontal slider used for brightness and volume. Tapping or
 /// dragging anywhere along the track sets the value.
@@ -230,6 +231,147 @@ class _RangeBarState extends State<RangeBar> {
           ),
         );
       },
+    );
+  }
+}
+
+/// A compact 62x138 control-center slider matching the vertical ColorOS
+/// brightness/volume pair. Values increase from bottom to top.
+class VerticalRangeBar extends StatefulWidget {
+  const VerticalRangeBar({
+    super.key,
+    required this.icon,
+    required this.value,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.onChanged,
+    required this.onChangeEnd,
+    this.onChangeStart,
+    this.translucentTrack = false,
+  });
+
+  final IconData icon;
+  final double value;
+  final Color activeColor;
+  final Color inactiveColor;
+  final ValueChanged<double> onChanged;
+  final ValueChanged<double> onChangeEnd;
+  final VoidCallback? onChangeStart;
+  final bool translucentTrack;
+
+  @override
+  State<VerticalRangeBar> createState() => _VerticalRangeBarState();
+}
+
+class _VerticalRangeBarState extends State<VerticalRangeBar> {
+  static const _step = 0.05;
+  double? _gestureValue;
+
+  double get _displayValue =>
+      (_gestureValue ?? widget.value).clamp(0.0, 1.0).toDouble();
+
+  void _update(Offset position, double height) {
+    if (height <= 0) return;
+    if (_gestureValue == null) widget.onChangeStart?.call();
+    final value = (1 - position.dy / height).clamp(0.0, 1.0).toDouble();
+    setState(() => _gestureValue = value);
+    widget.onChanged(value);
+  }
+
+  void _end() {
+    final value = _gestureValue;
+    if (value == null) return;
+    widget.onChangeEnd(value);
+    if (mounted) setState(() => _gestureValue = null);
+  }
+
+  void _adjust(double delta) {
+    final next = (widget.value + delta).clamp(0.0, 1.0).toDouble();
+    if (next == widget.value) return;
+    widget.onChangeStart?.call();
+    widget.onChanged(next);
+    widget.onChangeEnd(next);
+  }
+
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || event.scrollDelta.dy == 0) return;
+    GestureBinding.instance.pointerSignalResolver.register(
+      event,
+      (_) => _adjust(-event.scrollDelta.dy.sign * _step),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final value = _displayValue;
+    final radius = context.shellTheme.borderRadius(20);
+    return Semantics(
+      slider: true,
+      value: '${(value * 100).round()}%',
+      increasedValue: '${((value + _step).clamp(0.0, 1.0) * 100).round()}%',
+      decreasedValue: '${((value - _step).clamp(0.0, 1.0) * 100).round()}%',
+      onIncrease: () => _adjust(_step),
+      onDecrease: () => _adjust(-_step),
+      child: LayoutBuilder(
+        builder: (context, constraints) => Listener(
+          onPointerSignal: _handlePointerSignal,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (details) =>
+                _update(details.localPosition, constraints.maxHeight),
+            onTapUp: (details) {
+              _update(details.localPosition, constraints.maxHeight);
+              _end();
+            },
+            onTapCancel: _end,
+            onVerticalDragStart: (details) =>
+                _update(details.localPosition, constraints.maxHeight),
+            onVerticalDragUpdate: (details) =>
+                _update(details.localPosition, constraints.maxHeight),
+            onVerticalDragEnd: (_) => _end(),
+            onVerticalDragCancel: _end,
+            child: _TrackBackdrop(
+              enabled: widget.translucentTrack,
+              filled: value >= 1,
+              radius: radius,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: context.shellTheme.cardColor(widget.inactiveColor),
+                  borderRadius: radius,
+                  border: Border.all(color: context.shellColors.hairlineSoft),
+                ),
+                child: ClipRRect(
+                  borderRadius: radius,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      FractionallySizedBox(
+                        alignment: Alignment.bottomCenter,
+                        heightFactor: value,
+                        child: ColoredBox(color: widget.activeColor),
+                      ),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 10,
+                        child: Icon(
+                          widget.icon,
+                          size:
+                              24 *
+                              ShadeReferenceGeometry.inverseScaleOf(context),
+                          color: value >= 0.18
+                              ? context.shellTheme.accentPalette.onPrimary
+                              : context.shellColors.panelText,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

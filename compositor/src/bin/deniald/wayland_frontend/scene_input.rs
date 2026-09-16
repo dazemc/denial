@@ -63,12 +63,13 @@ impl WaylandFrontend {
     }
 
     #[cfg(feature = "flutter")]
-    pub(crate) fn reset_flutter_input_generation(&mut self) {
+    pub(crate) fn reset_flutter_input_generation(&mut self) -> bool {
         // The replacement engine has not observed the old generation's
         // layout, pressed keys, or active touch sequences. Forget them so a
         // later release/up cannot be delivered to the new engine without its
         // matching press/down. Client captures and routes remain untouched.
         self.input_layout = None;
+        let released_shell_focus = self.text_input.shell_captures_keyboard();
         self.text_input.set_shell_capture(false);
         self.text_input.retire_flutter_generation();
         self.synchronize_input_method();
@@ -89,6 +90,7 @@ impl WaylandFrontend {
             &mut self.flutter_input_method_keys,
             &mut self.retired_input_method_keys,
         );
+        released_shell_focus
     }
 
     pub(super) fn surface_under(

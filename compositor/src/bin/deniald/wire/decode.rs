@@ -635,6 +635,8 @@ fn decode_settings_request(
                     tap_to_click_enabled: touchpad.tap_to_click_enabled(),
                     natural_scroll_enabled: touchpad.natural_scroll_enabled(),
                     scroll_speed_factor: touchpad.scroll_speed_factor(),
+                    scrolling_layout_swipe_speed_factor: touchpad
+                        .scrolling_layout_swipe_speed_factor(),
                 },
             })
         }
@@ -742,6 +744,9 @@ fn shortcut_action_from_wire(action: fb::ShortcutActionKind) -> Result<ShortcutA
         fb::ShortcutActionKind::MinimizeAllWindows => Ok(ShortcutAction::MinimizeAllWindows),
         fb::ShortcutActionKind::ToggleMaximize => Ok(ShortcutAction::ToggleMaximize),
         fb::ShortcutActionKind::ToggleFullscreen => Ok(ShortcutAction::ToggleFullscreen),
+        fb::ShortcutActionKind::ToggleWindowAlwaysOnTop => {
+            Ok(ShortcutAction::ToggleWindowAlwaysOnTop)
+        }
         fb::ShortcutActionKind::ReleasePointer => Ok(ShortcutAction::ReleasePointer),
         fb::ShortcutActionKind::LockScreen => Ok(ShortcutAction::LockScreen),
         fb::ShortcutActionKind::VolumeUp => Ok(ShortcutAction::VolumeUp),

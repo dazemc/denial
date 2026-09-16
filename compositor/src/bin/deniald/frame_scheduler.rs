@@ -54,6 +54,8 @@ pub(super) enum FrameAction {
 pub(super) struct OutputFrameRequest {
     pub(super) tick: FrameTick,
     pub(super) dirty_serial: u64,
+    pub(super) lock_frame_token: u64,
+    pub(super) fingerprint_epoch: u64,
 }
 
 #[derive(Debug, Default)]
@@ -343,6 +345,8 @@ impl FrameScheduler {
             self.render_requests.push(OutputFrameRequest {
                 tick,
                 dirty_serial: dirty.serial,
+                lock_frame_token: 0,
+                fingerprint_epoch: 0,
             });
             self.render_texture_ids
                 .extend(dirty.texture_ids.iter().copied());

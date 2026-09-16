@@ -3814,6 +3814,12 @@ abstract class AppLocalizations {
   /// **'Finger scroll speed'**
   String get settingsTouchpadScrollSpeed;
 
+  /// Label for the continuous three-finger scrolling-layout swipe speed slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Scrolling layout swipe speed'**
+  String get settingsTouchpadScrollingLayoutSwipeSpeed;
+
   /// Label for the mouse pointer speed slider.
   ///
   /// In en, this message translates to:
@@ -4138,6 +4144,18 @@ abstract class AppLocalizations {
   /// **'Four-finger swipe right'**
   String get settingsShortcutGestureFourFingerSwipeRight;
 
+  /// Friendly display name for the four-finger swipe-up gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Four-finger swipe up'**
+  String get settingsShortcutGestureFourFingerSwipeUp;
+
+  /// Friendly display name for the four-finger swipe-down gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Four-finger swipe down'**
+  String get settingsShortcutGestureFourFingerSwipeDown;
+
   /// Supported shortcut input category.
   ///
   /// In en, this message translates to:
@@ -4275,6 +4293,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enter or leave fullscreen'**
   String get settingsShortcutActionToggleFullscreen;
+
+  /// Display name for the shortcut action that pins or unpins the focused window above other windows.
+  ///
+  /// In en, this message translates to:
+  /// **'Toggle always on top'**
+  String get settingsShortcutActionToggleWindowAlwaysOnTop;
 
   /// Display name for the release pointer shortcut action.
   ///
@@ -4432,10 +4456,10 @@ abstract class AppLocalizations {
   /// **'Give every window room to breathe.'**
   String get settingsLayoutTitle;
 
-  /// Explains the difference between stacking and tiling window layouts.
+  /// Explains the available desktop window layouts.
   ///
   /// In en, this message translates to:
-  /// **'Stacking lets windows overlap and move freely. Tiling uses a dynamic binary tree while keeping transient windows floating.'**
+  /// **'Stacking lets windows overlap. Tiling divides the desktop dynamically. Scrolling follows focus along a strip that turns vertical with a quarter-turned monitor.'**
   String get settingsWindowLayoutDescription;
 
   /// Label for the Dwindle tiling window layout.
@@ -4449,6 +4473,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Stacking'**
   String get settingsWindowLayoutStacking;
+
+  /// Label for the focus-following adaptive-axis scrolling layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Scrolling'**
+  String get settingsWindowLayoutScrolling;
 
   /// Title for choosing how desktop windows are arranged.
   ///
@@ -4479,6 +4509,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Workspace count'**
   String get settingsWorkspaceCount;
+
+  /// Label for choosing the direction of workspace transition motion.
+  ///
+  /// In en, this message translates to:
+  /// **'Switching direction'**
+  String get settingsWorkspaceSwitchingOrientation;
+
+  /// Label for horizontal workspace transition motion.
+  ///
+  /// In en, this message translates to:
+  /// **'Horizontal'**
+  String get settingsWorkspaceSwitchingHorizontal;
+
+  /// Label for vertical workspace transition motion.
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical'**
+  String get settingsWorkspaceSwitchingVertical;
 
   /// Accessible and visible label for a numbered workspace.
   ///
@@ -6465,6 +6513,270 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{width} px'**
   String settingsGlassRimPixels(String width);
+
+  /// Brief lock screen feedback when a fingerprint does not match.
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint not recognized'**
+  String get lockFingerprintNotRecognized;
+
+  /// Fingerprint settings: fingerprintSection
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint'**
+  String get fingerprintSection;
+
+  /// Fingerprint settings: fingerprintPasswordPrompt
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your sudo password to manage fingerprints.'**
+  String get fingerprintPasswordPrompt;
+
+  /// Fingerprint settings: fingerprintSudoPassword
+  ///
+  /// In en, this message translates to:
+  /// **'Sudo password'**
+  String get fingerprintSudoPassword;
+
+  /// Fingerprint settings: fingerprintContinue
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get fingerprintContinue;
+
+  /// Fingerprint settings: fingerprintDescription
+  ///
+  /// In en, this message translates to:
+  /// **'Use your enrolled fingers to unlock Denial.'**
+  String get fingerprintDescription;
+
+  /// Fingerprint settings: fingerprintEmptyTitle
+  ///
+  /// In en, this message translates to:
+  /// **'No fingerprints enrolled'**
+  String get fingerprintEmptyTitle;
+
+  /// Fingerprint settings: fingerprintEmptyDescription
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a finger below to enroll your first fingerprint.'**
+  String get fingerprintEmptyDescription;
+
+  /// Fingerprint settings: fingerprintChooseFinger
+  ///
+  /// In en, this message translates to:
+  /// **'Finger to enroll'**
+  String get fingerprintChooseFinger;
+
+  /// Fingerprint settings: fingerprintEnroll
+  ///
+  /// In en, this message translates to:
+  /// **'Enroll fingerprint'**
+  String get fingerprintEnroll;
+
+  /// Fingerprint settings: fingerprintAdd
+  ///
+  /// In en, this message translates to:
+  /// **'Add fingerprint'**
+  String get fingerprintAdd;
+
+  /// Fingerprint settings: fingerprintAuthenticationFailed
+  ///
+  /// In en, this message translates to:
+  /// **'Password verification failed. Try again.'**
+  String get fingerprintAuthenticationFailed;
+
+  /// Fingerprint settings: fingerprintExpired
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your password again to continue.'**
+  String get fingerprintExpired;
+
+  /// Fingerprint settings: fingerprintPreparing
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing the fingerprint reader…'**
+  String get fingerprintPreparing;
+
+  /// Fingerprint settings: fingerprintTouchSensor
+  ///
+  /// In en, this message translates to:
+  /// **'Touch and lift your selected finger on the sensor.'**
+  String get fingerprintTouchSensor;
+
+  /// Fingerprint settings: fingerprintEnrolled
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint enrolled. You can now use it to unlock Denial.'**
+  String get fingerprintEnrolled;
+
+  /// Fingerprint settings: fingerprintCancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Enrollment cancelled.'**
+  String get fingerprintCancelled;
+
+  /// Fingerprint settings: fingerprintDuplicate
+  ///
+  /// In en, this message translates to:
+  /// **'This fingerprint is already enrolled. Choose another finger.'**
+  String get fingerprintDuplicate;
+
+  /// Fingerprint settings: fingerprintRetry
+  ///
+  /// In en, this message translates to:
+  /// **'Lift your finger and touch the sensor again, adjusting its position.'**
+  String get fingerprintRetry;
+
+  /// Fingerprint settings: fingerprintUnavailable
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint management could not complete. Check the reader and try again.'**
+  String get fingerprintUnavailable;
+
+  /// Fingerprint settings: fingerprintProgress
+  ///
+  /// In en, this message translates to:
+  /// **'{completed} of {total} scans'**
+  String fingerprintProgress(int completed, int total);
+
+  /// Fingerprint settings: fingerprintLeftThumb
+  ///
+  /// In en, this message translates to:
+  /// **'Left thumb'**
+  String get fingerprintLeftThumb;
+
+  /// Fingerprint settings: fingerprintLeftIndex
+  ///
+  /// In en, this message translates to:
+  /// **'Left index finger'**
+  String get fingerprintLeftIndex;
+
+  /// Fingerprint settings: fingerprintLeftMiddle
+  ///
+  /// In en, this message translates to:
+  /// **'Left middle finger'**
+  String get fingerprintLeftMiddle;
+
+  /// Fingerprint settings: fingerprintLeftRing
+  ///
+  /// In en, this message translates to:
+  /// **'Left ring finger'**
+  String get fingerprintLeftRing;
+
+  /// Fingerprint settings: fingerprintLeftLittle
+  ///
+  /// In en, this message translates to:
+  /// **'Left little finger'**
+  String get fingerprintLeftLittle;
+
+  /// Fingerprint settings: fingerprintRightThumb
+  ///
+  /// In en, this message translates to:
+  /// **'Right thumb'**
+  String get fingerprintRightThumb;
+
+  /// Fingerprint settings: fingerprintRightIndex
+  ///
+  /// In en, this message translates to:
+  /// **'Right index finger'**
+  String get fingerprintRightIndex;
+
+  /// Fingerprint settings: fingerprintRightMiddle
+  ///
+  /// In en, this message translates to:
+  /// **'Right middle finger'**
+  String get fingerprintRightMiddle;
+
+  /// Fingerprint settings: fingerprintRightRing
+  ///
+  /// In en, this message translates to:
+  /// **'Right ring finger'**
+  String get fingerprintRightRing;
+
+  /// Fingerprint settings: fingerprintRightLittle
+  ///
+  /// In en, this message translates to:
+  /// **'Right little finger'**
+  String get fingerprintRightLittle;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Mobile data'**
+  String get mobileData;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
+  String get mobileConnected;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected'**
+  String get mobileDisconnected;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Mobile network unavailable'**
+  String get mobileUnavailable;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to change mobile data'**
+  String get mobileChangeFailed;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock SIM'**
+  String get simPinTitle;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'SIM PIN'**
+  String get simPinLabel;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock SIM'**
+  String get simPinUnlock;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Later'**
+  String get simPinLater;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'SIM could not be unlocked. Check your PIN and remaining attempts.'**
+  String get simPinFailed;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'SIM requires a PUK. Contact your carrier.'**
+  String get simPukRequired;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'SIM locked'**
+  String get simLocked;
+
+  /// No description provided for @simPinRetries.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} attempts remaining'**
+  String simPinRetries(int count);
 }
 
 class _AppLocalizationsDelegate

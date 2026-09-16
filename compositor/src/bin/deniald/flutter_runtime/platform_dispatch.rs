@@ -35,6 +35,9 @@ impl FlutterRuntime {
         warn!(
             count = retired.lease_count,
             timeout_ms = WINDOW_CLOSE_LEASE_TIMEOUT.as_millis(),
+            first_window_id = ?retired.first_window_id,
+            first_window_republished = retired.first_window_republished,
+            texture_count = retired.texture_ids.len(),
             "released window close-frame leases after Flutter acknowledgement timeout"
         );
         self.retire_window_close_textures(retired.texture_ids)
@@ -74,6 +77,14 @@ impl FlutterRuntime {
         // a lock request cannot be followed by one last unredacted read.
         self.clipboard
             .set_locked(self.authentication.security_gate_locked());
+        if message.channel == "denial/haptics" {
+            let result = self.authentication.handle_haptics_packet(&message.data);
+            self.host().respond(&mut message, &[])?;
+            if let Err(error) = result {
+                warn!(%error, "rejected Denial haptics packet");
+            }
+            return Ok(());
+        }
         if message.channel.as_bytes() == text_input::CHANNEL.to_bytes() {
             let host = self
                 .host
@@ -102,6 +113,16 @@ impl FlutterRuntime {
         // Release Flutter's request handle before dispatching any
         // asynchronous Denial response. The shell receives request/reply
         // data on its dedicated ordered native-to-Flutter channel.
+        if message.channel.as_bytes() == fingerprint_scene::CHANNEL.to_bytes() {
+            let response = self.handle_fingerprint_scene(&message.data);
+            self.host().respond(&mut message, &response)?;
+            return Ok(());
+        }
+        if message.channel.as_bytes() == lock_frame::CHANNEL.to_bytes() {
+            let response = self.handle_lock_frame_message(&message.data);
+            self.host().respond(&mut message, &response)?;
+            return Ok(());
+        }
         self.host().respond(&mut message, &[])?;
         if message.channel.as_bytes() == crate::authentication::CHANNEL.to_bytes() {
             let result = self.authentication.handle_packet(&message.data);
@@ -250,7 +271,7 @@ impl FlutterRuntime {
         }
         let result = host.shutdown();
         if result.is_ok() {
-            self.handler.destroy_targets();
+            let _ = self.handler.destroy_targets();
         } else {
             // The leaked EngineHost owns another Arc to this handler. Do not
             // destroy GL targets or external texture sources that an engine

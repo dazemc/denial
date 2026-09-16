@@ -40,6 +40,8 @@ impl WaylandFrontend {
         #[cfg(feature = "flutter")]
         insets::init(&display_handle);
         #[cfg(feature = "flutter")]
+        crate::fingerprint_presentation::init(&display_handle);
+        #[cfg(feature = "flutter")]
         let idle_inhibitors = IdleInhibitors::new(&display_handle);
         let output_power = OutputPowerManager::new(&display_handle);
         let screencopy = screencopy::ScreencopyManager::new(&display_handle);
@@ -240,13 +242,26 @@ impl WaylandFrontend {
             xwayland::scale_for_engine(atlas.engine_scale_120, xwayland_scale_mode);
         let xwayland_dpi = xwayland::dpi(xwayland_scale_120);
         let xwayland_args = ["-dpi".to_owned(), xwayland_dpi.to_string()];
+        let xwayland_cursor_size = settings.cursor_size();
+        let mut xwayland_environment = vec![(
+            OsString::from("XCURSOR_SIZE"),
+            OsString::from(xwayland_cursor_size.to_string()),
+        )];
+        #[cfg(feature = "flutter")]
+        if let Some(environment) = crate::xcursor_sentinel::environment() {
+            xwayland_environment.extend(
+                environment
+                    .into_iter()
+                    .map(|(name, value)| (OsString::from(name), OsString::from(value))),
+            );
+        }
         // Smithay has no pre-exec hook here. Temporarily widen this spawning
         // thread, synchronized with our guard, so Xwayland gets the app domain.
         let (xwayland, xwayland_client) = crate::cpu_scheduling::with_application_affinity(|| {
             XWayland::spawn(
                 &display_handle,
                 None,
-                std::iter::empty::<(String, String)>(),
+                xwayland_environment,
                 xwayland_args,
                 true,
                 Stdio::null(),
@@ -301,10 +316,12 @@ impl WaylandFrontend {
                             );
                             return;
                         };
-                        if let Err(error) =
-                            xwayland::publish_dpi(&mut xwm, frontend.xwayland_scale_120)
-                        {
-                            error!(%error, "could not publish Xwayland DPI settings");
+                        if let Err(error) = xwayland::publish_settings(
+                            &mut xwm,
+                            frontend.xwayland_scale_120,
+                            frontend.settings.cursor_size(),
+                        ) {
+                            error!(%error, "could not publish Xwayland settings");
                         }
                         frontend.xwm = Some(xwm);
                         match super::super::xembed_tray::XEmbedTray::start(frontend.xdisplay_name())
@@ -319,6 +336,7 @@ impl WaylandFrontend {
                             scale = xwayland::client_scale(frontend.xwayland_scale_120),
                             scale_mode = ?frontend.xwayland_scale_mode,
                             dpi = xwayland::dpi(frontend.xwayland_scale_120),
+                            cursor_size = frontend.settings.cursor_size(),
                             "Xwayland is ready"
                         );
                         state.scene_sync.mark_dirty();
@@ -421,8 +439,7 @@ impl WaylandFrontend {
             surface_ids: HashMap::new(),
             surfaces_by_id: HashMap::new(),
             next_surface_id: 1,
-            configured_window_geometries: HashMap::new(),
-            exact_window_geometries: HashMap::new(),
+            window_geometry_intents: HashMap::new(),
             restore_window_geometries: HashMap::new(),
             window_layout: create_window_layout(window_layout_kind),
             layout_restore_geometries: HashMap::new(),
@@ -438,7 +455,11 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             input_layout: None,
             #[cfg(feature = "flutter")]
+            shell_keyboard_focus: None,
+            #[cfg(feature = "flutter")]
             shell_fullscreen_locks: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            pinned_windows: HashSet::new(),
             #[cfg(feature = "flutter")]
             visible_window_ids: HashSet::new(),
             #[cfg(feature = "flutter")]
@@ -461,6 +482,8 @@ impl WaylandFrontend {
             flutter_pointer_press: None,
             #[cfg(feature = "flutter")]
             clipboard_drag_active: false,
+            #[cfg(feature = "flutter")]
+            compositor_pointer_grab_active: false,
             wayland_pointer_buttons: HashSet::new(),
             #[cfg(feature = "flutter")]
             routed_pointer_target: RoutedPointerTarget::Flutter,
@@ -549,7 +572,8 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             frame_timeline,
             #[cfg(feature = "flutter")]
-            mobile_shell: std::env::var("DENIA_SHELL_PROFILE").as_deref() == Ok("mobile"),
+            mobile_shell: denial_core::environment::var("DENIAL_SHELL_PROFILE").as_deref()
+                == Ok("mobile"),
             #[cfg(feature = "flutter")]
             idle_inhibitors,
             #[cfg(feature = "flutter")]

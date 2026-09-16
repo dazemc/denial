@@ -1,5 +1,6 @@
 //! Client-owned Wayland input dispatch.
 
+use super::super::focus::{clear_keyboard_focus, request_keyboard_focus};
 use super::flutter_route::{
     pointer_constraint_blocks_motion, pointer_constraint_reactivation_suppressed,
     process_wayland_keyboard_transition, route_pointer_axis,
@@ -184,13 +185,9 @@ pub(super) fn process_wayland_input_event(
                             toplevel.send_pending_configure();
                         }
                     }
-                    keyboard.set_focus(state, focus, serial);
+                    request_keyboard_focus(state, &keyboard, focus, serial);
                 } else {
-                    keyboard.set_focus(
-                        state,
-                        Option::<super::super::KeyboardFocusTarget>::None,
-                        serial,
-                    );
+                    clear_keyboard_focus(state, &keyboard, serial);
                 }
             }
 
@@ -253,13 +250,9 @@ pub(super) fn process_wayland_input_event(
                         toplevel.send_pending_configure();
                     }
                 }
-                keyboard.set_focus(state, focus, serial);
+                request_keyboard_focus(state, &keyboard, focus, serial);
             } else {
-                keyboard.set_focus(
-                    state,
-                    Option::<super::super::KeyboardFocusTarget>::None,
-                    serial,
-                );
+                clear_keyboard_focus(state, &keyboard, serial);
             }
 
             let under = state

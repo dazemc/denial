@@ -1,13 +1,13 @@
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
-import '../../theme/motion.dart';
 import 'shade_backdrop_scene.dart';
 
-/// A normal, lazily laid-out list with two independent paint transforms.
+/// A normal, lazily laid-out list with expansion-aware vertical positions.
 /// [progress] compresses vertical spacing without cropping the cards;
-/// [entrance] slides each row from the physical left on its own timeline.
-/// Neither animation rebuilds or resizes notification cards or scroll extent.
+/// [entrance] invalidates the cached silhouettes while descendant rows run
+/// their ColorOS alpha/scale/spacing reveal. Neither animation rebuilds or
+/// resizes notification cards or scroll extent.
 class NotificationShadeList extends SliverList {
   const NotificationShadeList({
     required super.delegate,
@@ -123,6 +123,11 @@ class _RenderNotificationShadeList extends RenderSliverList {
 
   double get _open => _progress.value.clamp(0.0, 1.0);
 
+  // Complete the row exit before the shade itself reaches zero. Stopping at
+  // exactly one row height leaves a visible strip pinned to the viewport edge
+  // until the enclosing shade is removed.
+  static const double _exitTravel = 1.2;
+
   @override
   void attach(PipelineOwner owner) {
     super.attach(owner);
@@ -150,19 +155,11 @@ class _RenderNotificationShadeList extends RenderSliverList {
 
   @override
   double childMainAxisPosition(RenderBox child) =>
-      super.childMainAxisPosition(child) * _open - _exitExtent * (1 - _open);
+      super.childMainAxisPosition(child) * _open -
+      _exitExtent * _exitTravel * (1 - _open);
 
   @override
-  double childCrossAxisPosition(RenderBox child) {
-    final index = indexOf(child).clamp(0, Motion.notificationHistoryMaxStagger);
-    final duration = Motion.notificationHistorySlide.inMilliseconds;
-    final stagger = Motion.notificationHistoryStagger.inMilliseconds;
-    final total = duration + stagger * Motion.notificationHistoryMaxStagger;
-    final phase = ((_entrance.value * total - index * stagger) / duration)
-        .clamp(0.0, 1.0);
-    return -(constraints.crossAxisExtent + 16) *
-        (1 - Curves.easeOutCubic.transform(phase));
-  }
+  double childCrossAxisPosition(RenderBox child) => 0;
 
   List<_NotificationPaintRow> _paintRows() {
     // This shell list always runs downward. Keep the standard sliver's layout,

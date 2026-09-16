@@ -32,6 +32,9 @@ impl Drop for RenderAuditCallbackTimer<'_> {
 
 impl OpenGlHandler for FlutterGlHandler {
     fn make_current(&self) -> bool {
+        if self.shutdown_started.load(Ordering::Acquire) {
+            return false;
+        }
         let _audit_timer = RenderAuditCallbackTimer::new(
             self.render_audit.as_ref(),
             RenderAuditStage::ContextMakeCurrent,
@@ -52,11 +55,36 @@ impl OpenGlHandler for FlutterGlHandler {
     }
 
     fn clear_current(&self) -> bool {
-        lock(&self.render_context).clear_current()
+        let mut render_context = lock(&self.render_context);
+        if render_context.context.is_current() {
+            return render_context.clear_current();
+        }
+        drop(render_context);
+
+        let mut resource_context = lock(&self.resource_context);
+        if resource_context.context.is_current() {
+            return resource_context.clear_current();
+        }
+
+        // Flutter may pair clear_current with a failed make-current callback.
+        // In that case this thread owns neither Denial context and there is
+        // nothing to release.
+        true
     }
 
     fn make_resource_current(&self) -> bool {
+        if self.shutdown_started.load(Ordering::Acquire) {
+            return false;
+        }
         lock(&self.resource_context).make_current()
+    }
+
+    fn begin_shutdown(&self) {
+        self.shutdown_started.store(true, Ordering::Release);
+    }
+
+    fn shutdown_on_render_thread(&self) -> bool {
+        self.destroy_targets()
     }
 
     fn raster_idle(&self) {
@@ -135,16 +163,37 @@ impl OpenGlHandler for FlutterGlHandler {
             self.render_audit.as_ref(),
             RenderAuditStage::BackingStore,
         );
-        let size = PixelSize::new(
-            u32::try_from(request.width).ok()?,
-            u32::try_from(request.height).ok()?,
-        );
-        let framebuffer = match lock(&self.broker).acquire(request.view_id, size) {
+        let (Ok(width), Ok(height)) = (u32::try_from(request.width), u32::try_from(request.height))
+        else {
+            error!(
+                render_view_id = request.view_id,
+                width = request.width,
+                height = request.height,
+                reason = "invalid_dimensions",
+                "could not acquire Flutter embedder backing store"
+            );
+            return None;
+        };
+        let size = PixelSize::new(width, height);
+        let (acquisition, transaction) = {
+            let mut broker = lock(&self.broker);
+            let acquisition = broker.acquire(request.view_id, size);
+            (acquisition, broker.transaction)
+        };
+        let framebuffer = match acquisition {
             Ok(framebuffer) => framebuffer,
             Err(blocked) => {
                 if let Some(audit) = &self.render_audit {
                     lock(audit).record_target_blocked(blocked);
                 }
+                error!(
+                    render_view_id = request.view_id,
+                    width = size.width,
+                    height = size.height,
+                    transaction,
+                    reason = ?blocked,
+                    "could not acquire Flutter embedder backing store"
+                );
                 // Every independently clocked output can temporarily retain a
                 // scanning generation, an atomic submission awaiting page flip,
                 // and a newer ready generation. Exhaustion remains ordinary

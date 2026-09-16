@@ -1,4 +1,4 @@
-//! Interactive XDG move/resize grabs owned by the native Wayland frontend.
+//! Interactive managed-window move/resize grabs owned by the native frontend.
 
 use smithay::backend::input::ButtonState;
 use smithay::desktop::Window;
@@ -13,9 +13,6 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Serial, Size};
-use smithay::wayland::compositor::with_states;
-use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelSurface};
-use smithay::xwayland::X11Surface;
 use smithay::xwayland::xwm::ResizeEdge as X11ResizeEdge;
 
 use super::RuntimeState;
@@ -229,26 +226,12 @@ fn window_is_mapped(data: &RuntimeState, window: &Window) -> bool {
             .any(|candidate| candidate == window)
 }
 
-fn toplevel_is_constrained(toplevel: &ToplevelSurface) -> bool {
-    toplevel.with_pending_state(|pending| {
-        pending.states.contains(xdg_toplevel::State::Fullscreen)
-            || pending.states.contains(xdg_toplevel::State::Maximized)
-    })
-}
-
-fn toplevel_is_resizing(toplevel: &ToplevelSurface) -> bool {
-    toplevel.with_pending_state(|pending| pending.states.contains(xdg_toplevel::State::Resizing))
-}
-
 fn window_accepts_grab_updates(data: &RuntimeState, window: &Window) -> bool {
     window_is_mapped(data, window)
-        && if let Some(toplevel) = window.toplevel() {
-            !toplevel_is_constrained(toplevel)
-        } else if let Some(x11) = window.x11_surface() {
-            !x11.is_override_redirect() && !x11.is_fullscreen() && !x11.is_maximized()
-        } else {
-            false
-        }
+        && data
+            .wayland
+            .as_ref()
+            .is_some_and(|frontend| frontend.window_accepts_grab_updates(window))
 }
 
 pub(super) struct MoveSurfaceGrab {
@@ -357,6 +340,13 @@ impl PointerGrab<RuntimeState> for MoveSurfaceGrab {
     }
 
     fn unset(&mut self, data: &mut RuntimeState) {
+        #[cfg(feature = "flutter")]
+        if !self.forward_buttons {
+            data.wayland
+                .as_mut()
+                .expect("missing Wayland frontend")
+                .set_compositor_pointer_grab_active(false);
+        }
         #[cfg(feature = "flutter")]
         if window_accepts_grab_updates(data, &self.window) {
             let geometry = data
@@ -538,6 +528,10 @@ impl PointerGrab<RuntimeState> for TileSwapGrab {
     }
 
     fn unset(&mut self, data: &mut RuntimeState) {
+        data.wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .set_compositor_pointer_grab_active(false);
         if !window_is_mapped(data, &self.window) {
             self.clear_preview(data);
             return;
@@ -684,6 +678,10 @@ impl PointerGrab<RuntimeState> for TileResizeGrab {
     }
 
     fn unset(&mut self, data: &mut RuntimeState) {
+        data.wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .set_compositor_pointer_grab_active(false);
         for window in self.affected_windows.clone() {
             if !window_is_mapped(data, &window) {
                 continue;
@@ -928,7 +926,6 @@ impl PointerGrab<RuntimeState> for LocalFlutterWindowGrab {
 pub(super) struct ResizeSurfaceGrab {
     start_data: GrabStartData<RuntimeState>,
     window: Window,
-    toplevel: ToplevelSurface,
     edges: ResizeEdges,
     initial_location: Point<i32, Logical>,
     initial_size: Size<i32, Logical>,
@@ -942,7 +939,6 @@ impl ResizeSurfaceGrab {
     pub(super) fn new(
         start_data: GrabStartData<RuntimeState>,
         window: Window,
-        toplevel: ToplevelSurface,
         edges: ResizeEdges,
         initial_location: Point<i32, Logical>,
         initial_size: Size<i32, Logical>,
@@ -954,7 +950,6 @@ impl ResizeSurfaceGrab {
         Self {
             start_data,
             window,
-            toplevel,
             edges,
             initial_location,
             initial_size,
@@ -971,19 +966,11 @@ impl ResizeSurfaceGrab {
     pub(super) fn new_compositor(
         start_data: GrabStartData<RuntimeState>,
         window: Window,
-        toplevel: ToplevelSurface,
         edges: ResizeEdges,
         initial_location: Point<i32, Logical>,
         initial_size: Size<i32, Logical>,
     ) -> Self {
-        let mut grab = Self::new(
-            start_data,
-            window,
-            toplevel,
-            edges,
-            initial_location,
-            initial_size,
-        );
+        let mut grab = Self::new(start_data, window, edges, initial_location, initial_size);
         grab.forward_buttons = false;
         grab
     }
@@ -993,16 +980,19 @@ impl ResizeSurfaceGrab {
             return;
         }
         self.finished = true;
-        let constrained =
-            self.toplevel.wl_surface().is_alive() && toplevel_is_constrained(&self.toplevel);
-        if self.toplevel.wl_surface().is_alive() {
-            self.toplevel.with_pending_state(|pending| {
-                pending.states.unset(xdg_toplevel::State::Resizing);
-                if !constrained {
-                    pending.size = Some(self.last_size);
-                }
-            });
-            self.toplevel.send_pending_configure();
+        #[cfg(feature = "flutter")]
+        if !self.forward_buttons {
+            data.wayland
+                .as_mut()
+                .expect("missing Wayland frontend")
+                .set_compositor_pointer_grab_active(false);
+        }
+        let constrained = data
+            .wayland
+            .as_ref()
+            .is_none_or(|frontend| !frontend.window_accepts_grab_updates(&self.window));
+        if let Some(frontend) = data.wayland.as_ref() {
+            frontend.prepare_window_interactive_resize(&self.window, self.last_size, true);
         }
         if constrained || !window_is_mapped(data, &self.window) {
             data.scene_sync.mark_dirty();
@@ -1035,11 +1025,9 @@ impl PointerGrab<RuntimeState> for ResizeSurfaceGrab {
     ) {
         handle.motion(data, None, event);
         if !window_accepts_grab_updates(data, &self.window)
-            || self
-                .window
-                .toplevel()
-                .is_none_or(|toplevel| toplevel.wl_surface() != self.toplevel.wl_surface())
-            || !toplevel_is_resizing(&self.toplevel)
+            || data.wayland.as_ref().is_none_or(|frontend| {
+                !frontend.window_accepts_interactive_resize_updates(&self.window)
+            })
         {
             handle.unset_grab(self, data, event.serial, event.time, true);
             return;
@@ -1058,11 +1046,11 @@ impl PointerGrab<RuntimeState> for ResizeSurfaceGrab {
             requested_height = requested_resize_dimension(self.initial_size.h, delta.y, true);
         }
 
-        let (minimum, maximum) = with_states(self.toplevel.wl_surface(), |states| {
-            let mut cached = states.cached_state.get::<SurfaceCachedState>();
-            let current = cached.current();
-            (current.min_size, current.max_size)
-        });
+        let (minimum, maximum) = data
+            .wayland
+            .as_ref()
+            .map(|frontend| frontend.window_size_constraints(&self.window))
+            .unwrap_or_else(|| (Size::from((1, 1)), Size::from((0, 0))));
         self.last_size = Size::from((
             constrain_dimension(requested_width, minimum.w, maximum.w),
             constrain_dimension(requested_height, minimum.h, maximum.h),
@@ -1088,11 +1076,10 @@ impl PointerGrab<RuntimeState> for ResizeSurfaceGrab {
             },
         ));
 
-        self.toplevel.with_pending_state(|pending| {
-            pending.states.set(xdg_toplevel::State::Resizing);
-            pending.size = Some(self.last_size);
-        });
-        self.toplevel.send_pending_configure();
+        data.wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .prepare_window_interactive_resize(&self.window, self.last_size, false);
         let target = Rectangle::new(self.last_location, self.last_size);
         data.wayland
             .as_mut()
@@ -1135,182 +1122,6 @@ impl PointerGrab<RuntimeState> for ResizeSurfaceGrab {
 
     fn unset(&mut self, data: &mut RuntimeState) {
         self.finish(data);
-    }
-}
-
-/// Interactive resize for an X11 window. X11 has no configure/ack cycle
-/// equivalent to xdg_toplevel, so every motion sends a bounded ConfigureNotify
-/// target and the last accepted geometry becomes the restore frame.
-pub(super) struct X11ResizeSurfaceGrab {
-    start_data: GrabStartData<RuntimeState>,
-    window: Window,
-    surface: X11Surface,
-    edges: ResizeEdges,
-    initial_geometry: Rectangle<i32, Logical>,
-    last_geometry: Rectangle<i32, Logical>,
-    forward_buttons: bool,
-}
-
-impl X11ResizeSurfaceGrab {
-    pub(super) fn new(
-        start_data: GrabStartData<RuntimeState>,
-        window: Window,
-        surface: X11Surface,
-        edges: ResizeEdges,
-        initial_geometry: Rectangle<i32, Logical>,
-    ) -> Self {
-        let initial_geometry = Rectangle::new(
-            initial_geometry.loc,
-            Size::from((
-                initial_geometry.size.w.clamp(1, MAX_WINDOW_DIMENSION),
-                initial_geometry.size.h.clamp(1, MAX_WINDOW_DIMENSION),
-            )),
-        );
-        Self {
-            start_data,
-            window,
-            surface,
-            edges,
-            initial_geometry,
-            last_geometry: initial_geometry,
-            forward_buttons: true,
-        }
-    }
-
-    #[cfg(feature = "flutter")]
-    pub(super) fn new_compositor(
-        start_data: GrabStartData<RuntimeState>,
-        window: Window,
-        surface: X11Surface,
-        edges: ResizeEdges,
-        initial_geometry: Rectangle<i32, Logical>,
-    ) -> Self {
-        let mut grab = Self::new(start_data, window, surface, edges, initial_geometry);
-        grab.forward_buttons = false;
-        grab
-    }
-
-    fn update_geometry(&mut self, event: &MotionEvent) {
-        let delta = event.location - self.start_data.location;
-        let mut requested_width = self.initial_geometry.size.w;
-        let mut requested_height = self.initial_geometry.size.h;
-        if self.edges.left {
-            requested_width =
-                requested_resize_dimension(self.initial_geometry.size.w, delta.x, false);
-        } else if self.edges.right {
-            requested_width =
-                requested_resize_dimension(self.initial_geometry.size.w, delta.x, true);
-        }
-        if self.edges.top {
-            requested_height =
-                requested_resize_dimension(self.initial_geometry.size.h, delta.y, false);
-        } else if self.edges.bottom {
-            requested_height =
-                requested_resize_dimension(self.initial_geometry.size.h, delta.y, true);
-        }
-
-        let minimum = self
-            .surface
-            .min_size()
-            .unwrap_or_else(|| Size::from((1, 1)));
-        let maximum = self
-            .surface
-            .max_size()
-            .unwrap_or_else(|| Size::from((0, 0)));
-        let size = Size::from((
-            constrain_dimension(requested_width, minimum.w, maximum.w),
-            constrain_dimension(requested_height, minimum.h, maximum.h),
-        ));
-        let location = Point::from((
-            if self.edges.left {
-                anchored_resize_origin(
-                    self.initial_geometry.loc.x,
-                    self.initial_geometry.size.w,
-                    size.w,
-                )
-            } else {
-                self.initial_geometry.loc.x
-            },
-            if self.edges.top {
-                anchored_resize_origin(
-                    self.initial_geometry.loc.y,
-                    self.initial_geometry.size.h,
-                    size.h,
-                )
-            } else {
-                self.initial_geometry.loc.y
-            },
-        ));
-        self.last_geometry = Rectangle::new(location, size);
-    }
-}
-
-impl PointerGrab<RuntimeState> for X11ResizeSurfaceGrab {
-    fn motion(
-        &mut self,
-        data: &mut RuntimeState,
-        handle: &mut PointerInnerHandle<'_, RuntimeState>,
-        _focus: Option<(WlSurface, Point<f64, Logical>)>,
-        event: &MotionEvent,
-    ) {
-        handle.motion(data, None, event);
-        if !window_accepts_grab_updates(data, &self.window)
-            || self.window.x11_surface() != Some(&self.surface)
-        {
-            handle.unset_grab(self, data, event.serial, event.time, true);
-            return;
-        }
-        self.update_geometry(event);
-        data.wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
-            .set_window_geometry_target(&self.window, self.last_geometry);
-        #[cfg(feature = "flutter")]
-        super::wayland_frontend::queue_window_placement(
-            data,
-            &self.window,
-            self.last_geometry,
-            WindowPlacementPhase::Update,
-            WindowPlacementChange::Resize,
-        );
-        // X11 ConfigureNotify/commit publishes the corresponding scene change;
-        // placement remains the sole high-frequency update during the grab.
-    }
-
-    fn button(
-        &mut self,
-        data: &mut RuntimeState,
-        handle: &mut PointerInnerHandle<'_, RuntimeState>,
-        event: &ButtonEvent,
-    ) {
-        if self.forward_buttons {
-            handle.button(data, event);
-        }
-        if event.state == ButtonState::Released
-            && !handle.current_pressed().contains(&self.start_data.button)
-        {
-            handle.unset_grab(self, data, event.serial, event.time, true);
-        }
-    }
-
-    forward_pointer_events!();
-
-    fn start_data(&self) -> &GrabStartData<RuntimeState> {
-        &self.start_data
-    }
-
-    fn unset(&mut self, data: &mut RuntimeState) {
-        #[cfg(feature = "flutter")]
-        if window_is_mapped(data, &self.window) {
-            super::wayland_frontend::queue_window_placement(
-                data,
-                &self.window,
-                self.last_geometry,
-                WindowPlacementPhase::End,
-                WindowPlacementChange::Resize,
-            );
-        }
-        data.scene_sync.mark_dirty();
     }
 }
 

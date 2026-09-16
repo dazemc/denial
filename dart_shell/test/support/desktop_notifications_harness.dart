@@ -1,3 +1,4 @@
+import 'package:denial_dart_shell/src/services/mobile_network_service.dart';
 import 'dart:async';
 
 import 'package:denial_dart_shell/src/models/desktop_notification.dart';
@@ -22,6 +23,9 @@ class DesktopNotificationsTestHarness {
     bridge = TestNotificationBridge();
     container = ProviderContainer.test(
       overrides: [
+        mobileNetworkProvider.overrideWith(
+          (_) => Stream.value(const MobileNetworkSnapshot()),
+        ),
         denialBridgeProvider.overrideWithValue(bridge),
         clockProvider.overrideWith((_) => Stream.value(DateTime(2026, 9, 9))),
         batteryProvider.overrideWithBuild((_, _) => BatteryStatus.unknown),

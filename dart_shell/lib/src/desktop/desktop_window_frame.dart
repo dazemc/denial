@@ -21,6 +21,16 @@ double desktopWindowPresentationOpacity({
   return desktopWidget ? 0.86 * windowOpacity : windowOpacity;
 }
 
+/// Existing windows mounted for desktop navigation are never application
+/// entrances. Their overview, switcher, minimize, or workspace motion owns
+/// the transition instead.
+bool desktopWindowSuppressesInitialReveal({
+  required bool overview,
+  required bool switching,
+  required bool minimized,
+  required bool hasWorkspaceTransition,
+}) => overview || switching || minimized || hasWorkspaceTransition;
+
 class _ClosingDesktopWindow {
   const _ClosingDesktopWindow({
     required this.id,
@@ -28,6 +38,7 @@ class _ClosingDesktopWindow {
     required this.frame,
     required this.fullscreen,
     required this.effect,
+    required this.outputClip,
   });
 
   final int id;
@@ -35,6 +46,7 @@ class _ClosingDesktopWindow {
   final Rect frame;
   final bool fullscreen;
   final DesktopWindowCloseEffect effect;
+  final Rect? outputClip;
 }
 
 class _DesktopClosingWindowFrame extends StatelessWidget {
@@ -51,39 +63,68 @@ class _DesktopClosingWindowFrame extends StatelessWidget {
     final drawsServerFrame =
         !closing.fullscreen && closing.window.serverSideDecorated;
     final radius = drawsServerFrame ? ShellTheme.of(context).windowRadius : 0.0;
-    return DesktopWindowCloseAnimation(
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final frameColor = context.shellColors.windowFrameSurface;
+    Widget result = DesktopWindowCloseAnimation(
       effect: closing.effect,
       seed: Object.hash(closing.window.objectId, closing.id),
       onCompleted: onCompleted,
-      child: CustomPaint(
-        painter: drawsServerFrame
-            ? DesktopWindowFramePainter(
-                windowId: closing.window.objectId,
-                radius: radius,
-                shadowColor: context.shellColors.shadow,
-                frameColor: context.shellColors.windowFrameSurface,
-              )
-            : null,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(math.max(0.0, radius - 1.0)),
-          child: Padding(
-            padding: drawsServerFrame
-                ? const EdgeInsets.all(DesktopMetrics.frameBorder)
-                : EdgeInsets.zero,
-            child: SizedBox.expand(
-              child: _DesktopWindowContent(
-                window: closing.window,
-                smooth: false,
-                active: false,
-                borderRadius: BorderRadius.circular(
-                  math.max(0.0, radius - DesktopMetrics.frameBorder),
+      child: Stack(
+        fit: StackFit.expand,
+        clipBehavior: Clip.none,
+        children: [
+          if (drawsServerFrame)
+            IgnorePointer(
+              child: CustomPaint(
+                painter: DesktopWindowShadowPainter(
+                  windowId: closing.window.objectId,
+                  radius: radius,
+                  shadowColor: context.shellColors.shadow,
+                ),
+              ),
+            ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(math.max(0.0, radius - 1.0)),
+            child: Padding(
+              padding: drawsServerFrame
+                  ? const EdgeInsets.all(DesktopMetrics.frameBorder)
+                  : EdgeInsets.zero,
+              child: SizedBox.expand(
+                child: _DesktopWindowContent(
+                  window: closing.window,
+                  smooth: false,
+                  active: false,
+                  borderRadius: BorderRadius.circular(
+                    math.max(0.0, radius - DesktopMetrics.frameBorder),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
+          if (drawsServerFrame)
+            IgnorePointer(
+              child: CustomPaint(
+                painter: DesktopWindowFramePainter(
+                  windowId: closing.window.objectId,
+                  devicePixelRatio: devicePixelRatio,
+                  radius: radius,
+                  frameColor: frameColor,
+                ),
+              ),
+            ),
+        ],
       ),
     );
+    if (closing.outputClip case final outputClip?) {
+      result = ClipPath(
+        clipper: _WorkspaceOutputClipper(
+          outputClip.shift(-closing.frame.topLeft),
+        ),
+        clipBehavior: Clip.hardEdge,
+        child: result,
+      );
+    }
+    return result;
   }
 }
 
@@ -105,7 +146,10 @@ class _DesktopWindowFrame extends ConsumerWidget {
     required this.switching,
     required this.motionDuration,
     required this.active,
+    required this.selected,
+    required this.windowRevealRegistry,
     required this.onOverviewTap,
+    required this.onOverviewClose,
     required this.onOverviewDragStart,
     required this.onOverviewDragUpdate,
     required this.onOverviewDragEnd,
@@ -127,7 +171,10 @@ class _DesktopWindowFrame extends ConsumerWidget {
   final bool switching;
   final Duration motionDuration;
   final bool active;
+  final bool selected;
+  final DesktopWindowRevealMountRegistry windowRevealRegistry;
   final VoidCallback onOverviewTap;
+  final VoidCallback onOverviewClose;
   final VoidCallback onOverviewDragStart;
   final ValueChanged<Offset> onOverviewDragUpdate;
   final VoidCallback onOverviewDragEnd;
@@ -160,6 +207,14 @@ class _DesktopWindowFrame extends ConsumerWidget {
         (state) => state.workspaceTransitions[this.placement.monitorId],
       ),
     );
+    final workspaceSwitchingOrientation = ref.watch(
+      shellSettingsProvider.select(
+        (settings) => settings.layout.workspaceSwitchingOrientation,
+      ),
+    );
+    final windowLayout = ref.watch(
+      shellSettingsProvider.select((settings) => settings.layout.windowLayout),
+    );
     final followsLivePlacement =
         this.placement.dragging &&
         liveGeometry?.dragging == true &&
@@ -184,6 +239,10 @@ class _DesktopWindowFrame extends ConsumerWidget {
     final outputRect = outputPixelGrid?.logicalRect;
     final transformed =
         overview || switching || desktopWidget || offscreenMinimized;
+    final scrollingOutputClip =
+        windowLayout == DesktopWindowLayout.scrolling && !transformed
+        ? outputRect
+        : null;
     final frame = desktopPixelAlignedWindowFrame(
       frame: liveFrame,
       contentInset: placement.frameBorder,
@@ -243,9 +302,11 @@ class _DesktopWindowFrame extends ConsumerWidget {
       pixelGridScale: devicePixelRatio,
       pixelGridOrigin: pixelGridOrigin,
       alignSizeToDevicePixels: true,
+      globalClipRect: scrollingOutputClip,
       child: DesktopWorkspaceWindowTransition(
         placement: placement,
         transition: workspaceTransition,
+        orientation: workspaceSwitchingOrientation,
         outputRect: outputRect,
         duration: MediaQuery.disableAnimationsOf(context)
             ? Duration.zero
@@ -254,11 +315,18 @@ class _DesktopWindowFrame extends ConsumerWidget {
           entering: desktopWidgetEntering,
           exiting: desktopWidgetExiting,
           duration: desktopWidgetTransitionDuration,
-          child: DesktopWindowReveal(
+          child: TrackedDesktopWindowReveal(
             key: ValueKey<String>('desktop-window-content-${window.objectId}'),
+            registry: windowRevealRegistry,
+            objectId: window.objectId,
             enabled: window.shouldAnimateEntrance,
-            suppressInitialAnimation:
-                workspaceTransition != null && !placement.minimized,
+            suppressInitialAnimation: desktopWindowSuppressesInitialReveal(
+              overview: overview,
+              switching: switching,
+              minimized: placement.minimized,
+              hasWorkspaceTransition:
+                  workspaceTransition != null && !placement.minimized,
+            ),
             child: IgnorePointer(
               ignoring:
                   minimized ||
@@ -284,13 +352,14 @@ class _DesktopWindowFrame extends ConsumerWidget {
                     ),
                     child: DesktopWindowRepaintBoundary(
                       outset: drawsServerFrame
-                          ? DesktopWindowFramePainter.shadowOutset
+                          ? DesktopWindowShadowPainter.shadowOutset
                           : 0,
                       child: DesktopOverviewPreviewInteraction(
                         overviewActive: overviewActive,
                         overview: overview,
                         desktopWidget: desktopWidget,
                         dragging: placement.dragging,
+                        selected: selected,
                         label: desktopWidget
                             ? context.l10n.desktopRestoreWindow(
                                 localizedWindowTitle(context, window),
@@ -299,6 +368,7 @@ class _DesktopWindowFrame extends ConsumerWidget {
                                 localizedWindowTitle(context, window),
                               ),
                         onTap: onOverviewTap,
+                        onClose: onOverviewClose,
                         onDragStart: onOverviewDragStart,
                         onDragUpdate: onOverviewDragUpdate,
                         onDragEnd: onOverviewDragEnd,
@@ -343,17 +413,16 @@ class _DesktopWindowFrame extends ConsumerWidget {
                             }
                             return DesktopWindowFrameLayers(
                               windowId: window.objectId,
-                              borderPainter: _DesktopWindowBorderPainter(
-                                windowId: window.objectId,
-                                color: desktopWindowBorderColor(
-                                  pinned: window.pinned,
-                                  active: active,
-                                  theme: theme,
-                                  inactiveColor:
-                                      context.shellColors.hairlineWindow,
-                                ),
-                                devicePixelRatio: devicePixelRatio,
-                                radius: windowRadius,
+                              devicePixelRatio: devicePixelRatio,
+                              radius: windowRadius,
+                              frameColor:
+                                  context.shellColors.windowFrameSurface,
+                              borderColor: desktopWindowBorderColor(
+                                pinned: window.pinned,
+                                active: active,
+                                theme: theme,
+                                inactiveColor:
+                                    context.shellColors.hairlineWindow,
                               ),
                               child: client,
                             );
@@ -374,8 +443,10 @@ class _DesktopWindowFrame extends ConsumerWidget {
 
 class DesktopWorkspaceWindowTransition extends StatelessWidget {
   const DesktopWorkspaceWindowTransition({
+    super.key,
     required this.placement,
     required this.transition,
+    required this.orientation,
     required this.outputRect,
     required this.duration,
     required this.child,
@@ -383,6 +454,7 @@ class DesktopWorkspaceWindowTransition extends StatelessWidget {
 
   final DesktopWindowPlacement placement;
   final DesktopWorkspaceTransition? transition;
+  final WorkspaceSwitchingOrientation orientation;
   final Rect? outputRect;
   final Duration duration;
   final Widget child;
@@ -391,19 +463,26 @@ class DesktopWorkspaceWindowTransition extends StatelessWidget {
   Widget build(BuildContext context) {
     final transition = this.transition;
     final resolvedOutput = outputRect;
-    final travel = resolvedOutput?.width.isFinite == true
-        ? resolvedOutput!.width
+    final vertical = orientation == WorkspaceSwitchingOrientation.vertical;
+    final outputExtent = vertical
+        ? resolvedOutput?.height
+        : resolvedOutput?.width;
+    final fallbackExtent = vertical
+        ? placement.frame.height
         : placement.frame.width;
+    final travel = outputExtent?.isFinite == true
+        ? outputExtent!
+        : fallbackExtent;
     final participates =
         !placement.minimized &&
         transition != null &&
         (placement.workspaceId == transition.fromWorkspace ||
             placement.workspaceId == transition.toWorkspace);
     final entering =
-        participates && placement.workspaceId == transition!.toWorkspace;
+        participates && placement.workspaceId == transition.toWorkspace;
     final outgoing =
-        participates && placement.workspaceId == transition!.fromWorkspace;
-    final direction = participates ? transition!.direction.toDouble() : 0.0;
+        participates && placement.workspaceId == transition.fromWorkspace;
+    final direction = participates ? transition.direction.toDouble() : 0.0;
     return ClipPath(
       clipper: participates && resolvedOutput != null
           ? _WorkspaceOutputClipper(
@@ -413,8 +492,16 @@ class DesktopWorkspaceWindowTransition extends StatelessWidget {
       clipBehavior: participates ? Clip.hardEdge : Clip.none,
       child: TweenAnimationBuilder<Offset>(
         tween: Tween<Offset>(
-          begin: entering ? Offset(direction * travel, 0) : Offset.zero,
-          end: outgoing ? Offset(-direction * travel, 0) : Offset.zero,
+          begin: entering
+              ? vertical
+                    ? Offset(0, direction * travel)
+                    : Offset(direction * travel, 0)
+              : Offset.zero,
+          end: outgoing
+              ? vertical
+                    ? Offset(0, -direction * travel)
+                    : Offset(-direction * travel, 0)
+              : Offset.zero,
         ),
         duration: participates ? duration : Duration.zero,
         curve: Motion.md3Emphasized,
@@ -456,6 +543,7 @@ class _DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
     this.pixelGridScale,
     this.pixelGridOrigin = Offset.zero,
     this.alignSizeToDevicePixels = false,
+    this.globalClipRect,
     required this.child,
   });
 
@@ -473,6 +561,7 @@ class _DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
   final double? pixelGridScale;
   final Offset pixelGridOrigin;
   final bool alignSizeToDevicePixels;
+  final Rect? globalClipRect;
   final Widget child;
 
   @override
@@ -585,6 +674,7 @@ class _DesktopAnimatedWindowPositionState
         _layoutPreviewExitActive = false;
         _dragReleaseAnimationOrigin = null;
       },
+      globalClipRect: widget.globalClipRect,
       child: RetainedTranslation(
         translation: liveTranslation,
         enabled: widget.dragging,
@@ -731,57 +821,5 @@ class _DesktopSurfaceTextureState extends State<_DesktopSurfaceTexture> {
       presentationScale: widget.presentationScale,
       pixelGridOrigin: widget.pixelGridOrigin,
     );
-  }
-}
-
-class _DesktopWindowBorderPainter extends CustomPainter {
-  const _DesktopWindowBorderPainter({
-    required this.windowId,
-    required this.color,
-    required this.devicePixelRatio,
-    required this.radius,
-  });
-
-  final int windowId;
-  final Color color;
-  final double devicePixelRatio;
-  final double radius;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    DesktopWindowRenderTelemetry.recordBorderPaint(windowId, size);
-    if (size.isEmpty) {
-      return;
-    }
-
-    final ratio = devicePixelRatio.isFinite && devicePixelRatio > 0.0
-        ? devicePixelRatio
-        : 1.0;
-    final pixel = 1.0 / ratio;
-    final inset = pixel / 2.0;
-    final rect = Rect.fromLTWH(
-      inset,
-      inset,
-      math.max(0.0, size.width - pixel),
-      math.max(0.0, size.height - pixel),
-    );
-    final resolvedRadius = math.max(0.0, radius - inset);
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = pixel
-      ..isAntiAlias = false;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, Radius.circular(resolvedRadius)),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _DesktopWindowBorderPainter oldDelegate) {
-    return windowId != oldDelegate.windowId ||
-        color != oldDelegate.color ||
-        devicePixelRatio != oldDelegate.devicePixelRatio ||
-        radius != oldDelegate.radius;
   }
 }

@@ -333,6 +333,7 @@ struct OutputPipeline {
     frames: OutputPipelineFrames,
     powering_off: bool,
     wake_modeset: Option<WakeModeset>,
+    wake_frame_pending: bool,
     request: PlaneCommit,
 }
 
@@ -970,6 +971,7 @@ impl OutputScheduler {
                     frames: OutputPipelineFrames::default(),
                     powering_off: false,
                     wake_modeset: None,
+                    wake_frame_pending: false,
                     request: plane_commit(scanout, pool.size)?,
                 })
             })
@@ -1232,6 +1234,7 @@ impl OutputScheduler {
 
     pub(super) fn submit_ready(
         &mut self,
+        runtime: &FlutterRuntime,
         swapchains: &OutputSwapchains,
         scanouts: &[Scanout],
         events: &mut RuntimeState,
@@ -1262,6 +1265,23 @@ impl OutputScheduler {
                 .iter()
                 .position(|pool| pool.output_id == pipeline.output_id)
                 .ok_or("output pipeline lost its render-fence pool")?;
+            if frame.request.fingerprint_epoch != events.fingerprint.epoch_for(pipeline.output_id)
+                || (pipeline.wake_frame_pending
+                    && !events.fingerprint.exclusive_for(pipeline.output_id)
+                    && !runtime.permits_wake_frame(frame.request.lock_frame_token))
+            {
+                let stale = pipeline
+                    .frames
+                    .take_ready()
+                    .expect("checked wake frame disappeared");
+                discard_ready_frame(
+                    runtime,
+                    pipeline.output_id,
+                    &mut ready_fences[fence_pool_index].slots,
+                    stale,
+                )?;
+                continue;
+            }
             let ready_fence = ready_fences[fence_pool_index]
                 .slots
                 .get_mut(frame_index)
@@ -1465,6 +1485,7 @@ impl OutputScheduler {
                 break;
             }
             swapchains.present(pipeline.output_id, presented.index)?;
+            pipeline.wake_frame_pending = false;
 
             // A missed edge can leave the already-rendered successor targeting
             // the edge which just completed.  Submitting that generation now
@@ -1492,6 +1513,12 @@ impl OutputScheduler {
                 }
             }
 
+            // This is a real DRM completion matched to a submitted frame.
+            // Some panels supply a zero timestamp: that disables clock training,
+            // not the completion itself. Never substitute a frame callback.
+            events
+                .fingerprint
+                .presented(pipeline.output_id, presented.request.fingerprint_epoch);
             let presentation = PresentedOutput {
                 id: scanouts[pipeline.scanout_index].output.id,
                 logical_sequence: presented.request.tick.sequence,
@@ -1670,6 +1697,12 @@ impl OutputScheduler {
             .is_some_and(|pipeline| pipeline.wake_modeset.is_some())
     }
 
+    pub(super) fn ready_for_unlock(&self, output: OutputId) -> bool {
+        self.pipelines.iter().any(|pipeline| {
+            pipeline.output_id == output && !pipeline.powering_off && !pipeline.wake_frame_pending
+        })
+    }
+
     pub(super) fn power_off(
         &mut self,
         runtime: &FlutterRuntime,
@@ -1764,6 +1797,7 @@ impl OutputScheduler {
             frames: OutputPipelineFrames::default(),
             powering_off: false,
             wake_modeset: Some(WakeModeset::new(Instant::now())),
+            wake_frame_pending: true,
             request: plane_commit(output, pool.size)?,
         });
         let _ = runtime;

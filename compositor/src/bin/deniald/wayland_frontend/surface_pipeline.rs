@@ -337,7 +337,7 @@ impl WaylandFrontend {
         };
         let render_formats =
             <GlesRenderer as Bind<Dmabuf>>::supported_formats(renderer).unwrap_or_default();
-        self.set_screencopy_dmabuf_formats(render_formats);
+        self.set_screencopy_dmabuf_formats(render_formats, render_node);
         let formats = renderer.dmabuf_formats();
         let global = if let Some(node) = render_node {
             let feedback = DmabufFeedbackBuilder::new(node.dev_id(), formats).build()?;
@@ -958,10 +958,6 @@ impl WaylandFrontend {
             } else {
                 fallback_height
             };
-            let monitor_id = self
-                .output_for_geometry(geometry)
-                .and_then(|entry| i64::try_from(entry.id.0).ok())
-                .unwrap_or(-1);
             let minimized = self.minimized_windows.contains(&surface.id());
             if !minimized
                 && self.workspace_location(stable_id).is_none()
@@ -970,23 +966,33 @@ impl WaylandFrontend {
             {
                 self.window_workspaces.insert(stable_id, parent_location);
             }
-            let output_id = self.output_for_geometry(geometry).map(|entry| entry.id);
-            let workspace_id = output_id
-                .and_then(|output| {
-                    self.reconcile_workspace_assignment(stable_id, output, minimized)
-                })
-                .map_or(-1, |location| i64::from(location.workspace));
-            let (suppress_animations, server_side_decorated, window_opacity) = x11
+            // A managed leaf's layout space owns output and workspace as one
+            // value. In particular, a scrolling column may intentionally be
+            // geometrically inside another monitor while it is clipped by its
+            // own row; geometry must never become a second ownership path.
+            let layout_space = self.managed_layout_space(window);
+            let (output_id, workspace_id) = if let Some(space) = layout_space {
+                (Some(space.output), i64::from(space.workspace))
+            } else {
+                let output = self.output_for_geometry(geometry).map(|entry| entry.id);
+                let workspace = output
+                    .and_then(|output| {
+                        self.reconcile_workspace_assignment(stable_id, output, minimized)
+                    })
+                    .map_or(-1, |location| i64::from(location.workspace));
+                (output, workspace)
+            };
+            let monitor_id = output_id
+                .and_then(|output| i64::try_from(output.0).ok())
+                .unwrap_or(-1);
+            let presentation = self.managed_window_presentation(window);
+            let suppress_animations = x11
                 .as_ref()
-                .map(|x11| {
-                    let server_side_decorated = shell_draws_x11_server_frame(x11);
-                    (
-                        !server_side_decorated,
-                        server_side_decorated,
-                        xwayland::x11_window_opacity(x11),
-                    )
-                })
-                .unwrap_or((false, true, 1.0));
+                .is_some_and(|_| !presentation.server_side_decorated);
+            let server_side_decorated = presentation.server_side_decorated;
+            let window_opacity = x11
+                .as_ref()
+                .map_or(1.0, |x11| xwayland::x11_window_opacity(x11));
             if window_opacity < 1.0 {
                 for layer in &mut layers {
                     layer.opacity *= window_opacity;
@@ -1057,6 +1063,9 @@ impl WaylandFrontend {
                 monitor_id,
                 workspace_id,
                 minimized,
+                fullscreen: presentation.fullscreen,
+                maximized: presentation.maximized,
+                pinned: self.window_is_pinned(&window),
                 transform,
                 scale_120,
                 content_x: f64::from(content.loc.x),
@@ -1163,6 +1172,9 @@ impl WaylandFrontend {
                 monitor_id,
                 workspace_id,
                 minimized,
+                fullscreen: false,
+                maximized: false,
+                pinned: self.pinned_windows.contains(&local_window.id),
                 transform: 0,
                 scale_120: 120,
                 content_x: 0.0,
@@ -1306,6 +1318,9 @@ impl WaylandFrontend {
                     monitor_id,
                     workspace_id: 1,
                     minimized: false,
+                    fullscreen: false,
+                    maximized: false,
+                    pinned: false,
                     transform,
                     scale_120,
                     content_x: min_x,

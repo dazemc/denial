@@ -10,6 +10,10 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     }
 
     let runtime_limit = options.runtime_limit();
+    let preserve_predecessor = preserves_predecessor_kms_state(
+        runtime_limit,
+        denial_core::environment::flag("DENIAL_NO_PREDECESSOR"),
+    );
     let output_configuration = RuntimeOutputConfiguration::from_options(&options);
     let mut settings = options
         .wayland
@@ -95,7 +99,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     if !drm.is_atomic() {
         return Err("the selected DRM device does not expose atomic modesetting".into());
     }
-    if !preserves_predecessor_kms_state(runtime_limit) {
+    if !preserve_predecessor {
         // A display manager can leave cursor or overlay planes latched when it
         // releases DRM master. Denial composites its cursor into the Flutter
         // scene, so take ownership of those planes before the first Denial
@@ -281,15 +285,14 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     for output in outputs {
         let original_mode = match kms.drm.get_crtc(output.crtc)?.mode() {
             Some(mode) => mode,
-            None if !preserves_predecessor_kms_state(runtime_limit) => {
+            None => {
                 info!(
                     output = output.name,
                     crtc = ?output.crtc,
-                    "display-manager handoff supplied an inactive CRTC"
+                    "selected output was inactive before Denial takeover"
                 );
                 output.mode
             }
-            None => return Err(format!("{:?} has no active mode", output.crtc).into()),
         };
         let surface = kms
             .drm
@@ -421,7 +424,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
         "testing initial atomic scanout state"
     );
 
-    let mut restore_state = if !preserves_predecessor_kms_state(runtime_limit) {
+    let mut restore_state = if !preserve_predecessor {
         // The display manager/logind may disable its CRTC between libseat
         // activation and this point. A real login session hands KMS back by
         // releasing DRM master; it must not depend on cloning a greeter
@@ -432,11 +435,23 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     } else {
         let state = RestoreState::capture(&kms.drm, &kms.scanouts)?;
         state.test(&kms.drm)?;
-        info!(
-            properties = state.property_count(),
-            framebuffer_aliases = state.owned_framebuffer_count(),
-            "pre-Denial KMS state is atomically restorable"
-        );
+        if state.owned_framebuffer_count() == 0 {
+            // No primary plane was bound before Denial acquired DRM master.
+            // There is no predecessor image to preserve, so use the same
+            // non-primary-plane cleanup as an explicit session handoff.
+            kms_state::release_inherited_planes(&kms.drm);
+            info!(
+                outputs = kms.scanouts.len(),
+                "no predecessor KMS scanout detected; inactive state will be restored"
+            );
+        } else {
+            info!(
+                properties = state.property_count(),
+                framebuffer_aliases = state.owned_framebuffer_count(),
+                outputs = kms.scanouts.len(),
+                "pre-Denial KMS state is atomically restorable"
+            );
+        }
         state
     };
 

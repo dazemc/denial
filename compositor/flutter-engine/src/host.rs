@@ -9,7 +9,7 @@ use std::ptr;
 use std::slice;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, ThreadId};
 
 use crate::{EngineError, EngineLibrary, LoadError, RunningEngine, sys};
@@ -143,6 +143,17 @@ pub trait OpenGlHandler: Send + Sync + 'static {
     /// queued before the sentinel. Embedders use this to close transactions
     /// that legitimately produced no present callback.
     fn raster_idle(&self) {}
+
+    /// Prevents new render/resource callbacks from acquiring the embedder's
+    /// contexts while shutdown drains work which was already queued.
+    fn begin_shutdown(&self) {}
+
+    /// Runs synchronously on Flutter's render thread after all render tasks
+    /// queued before shutdown. The default only releases the render context;
+    /// embedders with explicit GL allocations may destroy them here first.
+    fn shutdown_on_render_thread(&self) -> bool {
+        self.clear_current()
+    }
 
     /// Optional virtual canvas, read with a resolved texture generation.
     fn external_texture_presentation(
@@ -352,6 +363,13 @@ struct CallbackState {
         *mut c_void,
     ) -> sys::FlutterEngineResult,
     raster_sentinel_pending: AtomicBool,
+    render_shutdown: RenderShutdownBarrier,
+}
+
+#[derive(Default)]
+struct RenderShutdownBarrier {
+    completed: Mutex<Option<bool>>,
+    ready: Condvar,
 }
 
 #[derive(Debug, Default)]
@@ -574,6 +592,7 @@ impl EngineHost {
                 .PostRenderThreadTask
                 .expect("validated Flutter proc table"),
             raster_sentinel_pending: AtomicBool::new(false),
+            render_shutdown: RenderShutdownBarrier::default(),
         });
         let state = (&mut *callback_state as *mut CallbackState).cast::<c_void>();
 
@@ -702,10 +721,17 @@ impl EngineHost {
         let Some(mut state) = self.state.take() else {
             return Ok(());
         };
-        let result = state
-            .engine
-            .as_mut()
-            .map_or(Ok(()), RunningEngine::shutdown_in_place);
+        let result = if let Some(engine) = state.engine.as_mut() {
+            state._callback_state.handler.begin_shutdown();
+            let render_shutdown = release_render_thread_resources_before_shutdown(
+                &state._callback_state,
+                engine.raw_handle(),
+            );
+            let engine_shutdown = engine.shutdown_in_place();
+            engine_shutdown.and(render_shutdown)
+        } else {
+            Ok(())
+        };
         if result.is_ok() {
             state
                 ._callback_state
@@ -713,6 +739,49 @@ impl EngineHost {
                 .store(0, Ordering::Release);
         }
         release_or_leak(state, result)
+    }
+}
+
+fn release_render_thread_resources_before_shutdown(
+    state: &CallbackState,
+    engine: sys::FlutterEngine,
+) -> Result<(), EngineError> {
+    {
+        let mut completed = state
+            .render_shutdown
+            .completed
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *completed = None;
+    }
+    let data = (state as *const CallbackState).cast_mut().cast::<c_void>();
+    // SAFETY: the engine is live and retains `state`; this function waits for
+    // the posted callback before allowing either lifetime to end.
+    let result = unsafe {
+        (state.post_render_thread_task)(engine, Some(release_render_thread_resources), data)
+    };
+    if result != sys::FlutterEngineResult_kSuccess {
+        return Err(EngineError::Call {
+            operation: "PostRenderThreadShutdownTask",
+            result,
+        });
+    }
+    let mut completed = state
+        .render_shutdown
+        .completed
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    while completed.is_none() {
+        completed = state
+            .render_shutdown
+            .ready
+            .wait(completed)
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+    }
+    if *completed == Some(true) {
+        Ok(())
+    } else {
+        Err(EngineError::RenderThreadShutdown)
     }
 }
 
@@ -1189,6 +1258,19 @@ unsafe extern "C" fn raster_idle(data: *mut c_void) {
             .raster_sentinel_pending
             .store(false, Ordering::Release);
         state.handler.raster_idle();
+    });
+}
+
+unsafe extern "C" fn release_render_thread_resources(data: *mut c_void) {
+    dispatch(data, (), |state| {
+        let released = state.handler.shutdown_on_render_thread();
+        let mut completed = state
+            .render_shutdown
+            .completed
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *completed = Some(released);
+        state.render_shutdown.ready.notify_one();
     });
 }
 

@@ -138,6 +138,8 @@ class DenialWindow {
     required this.monitorId,
     this.workspaceId = 1,
     this.minimized = false,
+    this.fullscreen = false,
+    this.maximized = false,
     required this.transform,
     required this.scale120,
     this.pinned = false,
@@ -179,6 +181,8 @@ class DenialWindow {
   final int monitorId;
   final int workspaceId;
   final bool minimized;
+  final bool fullscreen;
+  final bool maximized;
   final int transform;
   final int scale120;
   final bool pinned;
@@ -339,6 +343,8 @@ class DenialWindow {
         other.monitorId == monitorId &&
         other.workspaceId == workspaceId &&
         other.minimized == minimized &&
+        other.fullscreen == fullscreen &&
+        other.maximized == maximized &&
         other.pinned == pinned &&
         other.suppressAnimations == suppressAnimations &&
         other.restoredAcrossFlutterRestart == restoredAcrossFlutterRestart &&
@@ -375,6 +381,8 @@ class DenialWindow {
         other.monitorId == monitorId &&
         other.workspaceId == workspaceId &&
         other.minimized == minimized &&
+        other.fullscreen == fullscreen &&
+        other.maximized == maximized &&
         other.transform == transform &&
         other.scale120 == scale120 &&
         other.pinned == pinned &&
@@ -424,6 +432,8 @@ class DenialWindow {
     monitorId,
     workspaceId,
     minimized,
+    fullscreen,
+    maximized,
     transform,
     scale120,
     pinned,

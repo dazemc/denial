@@ -113,8 +113,7 @@ use super::local_windows::{LocalFlutterWindows, LocalWindowError};
 use super::native_shortcut::ShortcutManager;
 use super::settings::SettingsManager;
 use super::window_grab::{
-    MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab, checked_pointer_grab,
-    constrain_dimension,
+    MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, checked_pointer_grab, constrain_dimension,
 };
 use super::window_layout::{WindowLayout, create_window_layout};
 use super::window_placement_store::{
@@ -149,6 +148,10 @@ pub(super) mod input_method;
 #[cfg(feature = "flutter")]
 #[path = "wayland_frontend/insets.rs"]
 mod insets;
+#[path = "wayland_frontend/managed_window.rs"]
+mod managed_window;
+#[cfg(feature = "flutter")]
+pub(super) use focus::{restore_shell_keyboard_focus, suspend_keyboard_focus_for_shell};
 #[cfg(feature = "flutter")]
 pub(super) use input::{dispatch_shell_keyboard, reconcile_flutter_pointer_route};
 #[path = "wayland_frontend/input_source.rs"]
@@ -183,11 +186,11 @@ mod touch_gestures;
 mod window_layout_adapter;
 #[path = "wayland_frontend/window_management.rs"]
 mod window_management;
-#[path = "wayland_frontend/window_state.rs"]
-mod window_state;
 #[cfg(feature = "flutter")]
 #[path = "wayland_frontend/window_outputs.rs"]
 mod window_outputs;
+#[path = "wayland_frontend/window_state.rs"]
+mod window_state;
 #[cfg(feature = "flutter")]
 #[path = "wayland_frontend/workspace.rs"]
 mod workspace;
@@ -212,6 +215,7 @@ pub(super) use input::{
 #[cfg(feature = "flutter")]
 use input_method::EditorEndpoint;
 use input_method::InputMethodManager;
+use managed_window::toplevel_has_state;
 use output_power::OutputPowerManager;
 #[cfg(feature = "flutter")]
 use surface_snapshot::{rgba_payload_len, shm_cache_budget_for_atlas, snapshot_shm_buffer};
@@ -221,16 +225,13 @@ use topology::{
     choose_popup_output, clamp_window_geometry, configure_output, output_logical_bounds,
     saturating_point_sub,
 };
-use window_management::toplevel_has_state;
 #[cfg(feature = "flutter")]
 pub(super) use window_management::{
     apply_window_commands, queue_local_flutter_window_placement, queue_transient_window_placement,
     queue_window_placement,
 };
 #[cfg(feature = "flutter")]
-use window_management::{
-    shell_content_geometry, shell_draws_server_frame, shell_draws_x11_server_frame,
-};
+use window_management::{shell_content_geometry, shell_draws_server_frame};
 
 const MAX_PENDING_DMABUF_IMPORTS: usize = 128;
 const XDG_ACTIVATION_TOKEN_LIFETIME: Duration = Duration::from_secs(10);
@@ -325,9 +326,9 @@ enum ClientCursorIntent {
 fn resolved_client_cursor_intent(
     intent: ClientCursorIntent,
     allow_surface: bool,
-    drag_active: bool,
+    shell_cursor_override: bool,
 ) -> ClientCursorIntent {
-    if drag_active {
+    if shell_cursor_override {
         return ClientCursorIntent::Named("default");
     }
     match intent {
@@ -445,8 +446,7 @@ pub(super) struct WaylandFrontend {
     surface_ids: HashMap<ObjectId, u64>,
     surfaces_by_id: HashMap<u64, WlSurface>,
     next_surface_id: u64,
-    configured_window_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
-    exact_window_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
+    window_geometry_intents: HashMap<ObjectId, WindowGeometryIntent>,
     restore_window_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
     window_layout: Box<dyn WindowLayout<ObjectId>>,
     layout_restore_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
@@ -462,7 +462,11 @@ pub(super) struct WaylandFrontend {
     #[cfg(feature = "flutter")]
     input_layout: Option<InputLayoutSnapshot>,
     #[cfg(feature = "flutter")]
+    shell_keyboard_focus: Option<KeyboardFocusTarget>,
+    #[cfg(feature = "flutter")]
     shell_fullscreen_locks: HashSet<ObjectId>,
+    #[cfg(feature = "flutter")]
+    pinned_windows: HashSet<u64>,
     #[cfg(feature = "flutter")]
     visible_window_ids: HashSet<u64>,
     #[cfg(feature = "flutter")]
@@ -485,6 +489,8 @@ pub(super) struct WaylandFrontend {
     flutter_pointer_press: Option<FlutterPointerPress>,
     #[cfg(feature = "flutter")]
     clipboard_drag_active: bool,
+    #[cfg(feature = "flutter")]
+    compositor_pointer_grab_active: bool,
     wayland_pointer_buttons: HashSet<u32>,
     #[cfg(feature = "flutter")]
     routed_pointer_target: RoutedPointerTarget,
@@ -618,33 +624,6 @@ struct FlutterPointerPress {
     location: Point<f64, Logical>,
 }
 
-#[cfg(feature = "flutter")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum ShellFullscreenTransition {
-    EnterShell,
-    ExitShell,
-    ExitClient,
-    Blocked,
-}
-
-#[cfg(feature = "flutter")]
-fn shell_fullscreen_transition(
-    client_fullscreen: bool,
-    shell_fullscreen: bool,
-    geometry_locked: bool,
-) -> ShellFullscreenTransition {
-    if client_fullscreen {
-        return ShellFullscreenTransition::ExitClient;
-    }
-    if shell_fullscreen {
-        return ShellFullscreenTransition::ExitShell;
-    }
-    if geometry_locked {
-        return ShellFullscreenTransition::Blocked;
-    }
-    ShellFullscreenTransition::EnterShell
-}
-
 struct WaylandOutput {
     id: OutputId,
     connector: String,
@@ -691,6 +670,79 @@ fn initial_xdg_placement_policy(
 struct PendingClientSizedPlacement {
     requested_location: Point<i32, Logical>,
     output_id: OutputId,
+}
+
+/// The single compositor-side geometry contract for a managed window.
+///
+/// Protocol callbacks may acknowledge or challenge this target, but neither
+/// XDG nor Xwayland gets a second placement record. Pending targets disappear
+/// after acknowledgement; authoritative targets remain until the policy which
+/// owns them (layout, client state, or shell state) explicitly replaces them.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct WindowGeometryIntent {
+    target: Rectangle<i32, Logical>,
+    authority: WindowGeometryAuthority,
+}
+
+impl WindowGeometryIntent {
+    fn retained_after_commit(self, committed: Size<i32, Logical>) -> bool {
+        committed != self.target.size || self.authority.persistent()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WindowGeometryAuthority {
+    Pending,
+    Layout,
+    ClientState,
+    Shell,
+    Exact,
+}
+
+impl WindowGeometryAuthority {
+    const fn persistent(self) -> bool {
+        !matches!(self, Self::Pending)
+    }
+
+    const fn exact(self) -> bool {
+        matches!(self, Self::Shell | Self::Exact)
+    }
+}
+
+#[cfg(test)]
+mod window_geometry_intent_tests {
+    use super::*;
+
+    fn intent(authority: WindowGeometryAuthority) -> WindowGeometryIntent {
+        WindowGeometryIntent {
+            target: Rectangle::new((10, 20).into(), (800, 600).into()),
+            authority,
+        }
+    }
+
+    #[test]
+    fn matching_commit_releases_only_one_shot_geometry() {
+        let committed = Size::from((800, 600));
+        assert!(!intent(WindowGeometryAuthority::Pending).retained_after_commit(committed));
+        assert!(intent(WindowGeometryAuthority::Layout).retained_after_commit(committed));
+        assert!(intent(WindowGeometryAuthority::ClientState).retained_after_commit(committed));
+        assert!(intent(WindowGeometryAuthority::Shell).retained_after_commit(committed));
+        assert!(intent(WindowGeometryAuthority::Exact).retained_after_commit(committed));
+    }
+
+    #[test]
+    fn mismatched_commit_never_replaces_the_current_target() {
+        let committed = Size::from((1920, 1080));
+        for authority in [
+            WindowGeometryAuthority::Pending,
+            WindowGeometryAuthority::Layout,
+            WindowGeometryAuthority::ClientState,
+            WindowGeometryAuthority::Shell,
+            WindowGeometryAuthority::Exact,
+        ] {
+            assert!(intent(authority).retained_after_commit(committed));
+        }
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -854,13 +906,14 @@ fn init_listener(
                 warn!("discarding Wayland connection without frontend state");
                 return;
             };
-            let Some(client_state) = client_budget.try_reserve_client() else {
+            let Some(mut client_state) = client_budget.try_reserve_client() else {
                 warn!(
                     limit = MAX_WAYLAND_CLIENTS,
                     "discarding Wayland connection because the client budget is exhausted"
                 );
                 return;
             };
+            client_state.peer_uid = socket_peer_uid(&client_stream);
             if let Err(error) = frontend
                 .display_handle
                 .insert_client(client_stream, Arc::new(client_state))
@@ -902,3 +955,44 @@ fn transform_to_wire(transform: Transform) -> u32 {
 }
 
 smithay::delegate_dispatch2!(RuntimeState);
+
+// Cache peer identity before inserting the socket. Global visibility callbacks
+// run under the Wayland backend lock and must never re-enter it for credentials.
+fn socket_peer_uid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let mut credentials = std::mem::MaybeUninit::<libc::ucred>::uninit();
+    let mut size = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: getsockopt writes at most size bytes to a correctly sized ucred.
+    let status = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            credentials.as_mut_ptr().cast(),
+            &mut size,
+        )
+    };
+    if status != 0 || size as usize != std::mem::size_of::<libc::ucred>() {
+        return None;
+    }
+    // SAFETY: the successful call initialized the complete structure.
+    Some(unsafe { credentials.assume_init() }.uid)
+}
+
+#[cfg(feature = "flutter")]
+pub(super) fn is_root_client(client: &Client) -> bool {
+    client
+        .get_data::<handlers::DenialClientState>()
+        .is_some_and(|state| state.peer_uid == Some(0))
+}
+
+#[cfg(all(test, feature = "flutter"))]
+pub(super) fn fingerprint_test_client(uid: Option<u32>) -> Arc<dyn ClientData> {
+    let mut data = handlers::DenialClientState::default();
+    data.peer_uid = uid;
+    Arc::new(data)
+}
+
+#[cfg(feature = "flutter")]
+#[path = "wayland_frontend/wake_gesture.rs"]
+mod wake_gesture;

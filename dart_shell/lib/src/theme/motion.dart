@@ -56,8 +56,8 @@ class Motion {
   static const Duration systemLevelHudValue = Duration(milliseconds: 260);
   static const Duration notificationBanner = Duration(milliseconds: 260);
   static const Duration mobileNotificationBanner = Duration(milliseconds: 400);
-  static const Duration notificationHistorySlide = Duration(milliseconds: 400);
-  static const Duration notificationHistoryStagger = Duration(milliseconds: 55);
+  static const Duration notificationHistorySlide = Duration(milliseconds: 350);
+  static const Duration notificationHistoryStagger = Duration(milliseconds: 16);
   static const int notificationHistoryMaxStagger = 5;
   static const Duration screenshotTake = Duration(milliseconds: 220);
   static const Duration unlock = Duration(milliseconds: 400);
@@ -158,7 +158,7 @@ TickerFuture springTo(
 
 /// Opt-in animation and scheduler telemetry for the embedded shell.
 ///
-/// Enable with `DENIA_DART_FRAME_TRACE=1`. It remains completely dormant in
+/// Enable with `DENIAL_DART_FRAME_TRACE=1`. It remains completely dormant in
 /// normal operation. During a traced animation it reports controller ticks and
 /// the number of transient callbacks queued for the following frame. That lets
 /// the host-side vsync trace distinguish a stopped ticker from a delayed frame.

@@ -387,6 +387,15 @@ pub(crate) struct ShmTextureFrame {
 }
 
 impl ShmTextureFrame {
+    pub(crate) fn new_owned(
+        width: u32,
+        height: u32,
+        revision: u64,
+        rgba: Vec<u8>,
+    ) -> Result<Self, &'static str> {
+        Self::from_pixels(width, height, revision, rgba, Weak::new())
+    }
+
     pub(crate) fn new_pooled(
         width: u32,
         height: u32,
@@ -439,6 +448,22 @@ impl ShmTextureFrame {
 
     pub(crate) fn height(&self) -> u32 {
         self.height
+    }
+
+    pub(crate) fn pixels_if_single(&self) -> Option<[u8; 4]> {
+        (self.width == 1 && self.height == 1).then(|| {
+            self.pixels()
+                .try_into()
+                .expect("one RGBA pixel is four bytes")
+        })
+    }
+
+    pub(crate) fn is_fully_transparent(&self) -> bool {
+        self.pixels()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 0)
     }
 }
 

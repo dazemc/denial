@@ -26,8 +26,10 @@ class ShellMetrics {
   static const double quickSettingsPanelHeight = 488.0;
   static const double quickSettingsDragDistance = quickSettingsPanelHeight;
 
+  /// ColorOS-style split shades occupy the complete output while their
+  /// internal controls and notification list keep their own safe-area insets.
   static double quickSettingsPanelExtent(Size viewSize) =>
-      (viewSize.height - 24).clamp(1.0, 580.0).toDouble();
+      viewSize.height.clamp(1.0, double.infinity).toDouble();
 
   static double quickSettingsDragScale(Size viewSize) =>
       quickSettingsDragDistance / quickSettingsPanelExtent(viewSize);

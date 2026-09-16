@@ -43,11 +43,17 @@ All other arguments are forwarded to
 Root-owned shell-compatible machine configuration. Supported overrides include
 .BR DENIAL_DRM_DEVICE ,
 .BR DENIAL_RENDER_DEVICE ,
-.BR DENIA_SHELL_PROFILE ,
-.BR DENIA_FLUTTER_RENDERER ,
+.BR DENIAL_SHELL_PROFILE ,
+.BR DENIAL_FLUTTER_RENDERER ,
 .BR QT_QPA_PLATFORMTHEME ,
 and
 .BR DENIAL_FLUTTER_BUNDLE .
+.PP
+The former
+.B DENIA_*
+spellings remain compatibility aliases. A
+.B DENIAL_*
+value takes precedence when both forms are present.
 .PP
 Unless explicitly overridden, the launcher selects Qt's
 .B xdgdesktopportal

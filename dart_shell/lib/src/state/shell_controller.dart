@@ -46,7 +46,7 @@ class ShellController extends Notifier<ShellState>
     _authentication = ref.watch(authenticationProvider.notifier);
     final startLocked = ref
         .watch(startupEnvironmentProvider)
-        .flag('DENIA_START_LOCKED');
+        .flag('DENIAL_START_LOCKED');
     _resetBuildFields();
     _automaticSoftwareKeyboard =
         ref.read(shellProfileProvider) == ShellProfile.mobile;

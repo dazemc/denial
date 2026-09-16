@@ -53,6 +53,10 @@ use super::idle_policy;
 use super::render_audit_enabled;
 use super::wire::{self, WireBridge};
 
+#[path = "flutter_runtime/fingerprint_scene.rs"]
+mod fingerprint_scene;
+#[path = "flutter_runtime/lock_frame.rs"]
+mod lock_frame;
 #[path = "flutter_runtime/mouse_cursor.rs"]
 mod mouse_cursor;
 #[path = "flutter_runtime/platform.rs"]
@@ -292,6 +296,8 @@ struct WindowCloseTextureLease {
 struct RetiredWindowCloseLeases {
     lease_count: usize,
     texture_ids: Vec<i64>,
+    first_window_id: Option<u64>,
+    first_window_republished: bool,
 }
 
 #[derive(Default)]
@@ -323,7 +329,7 @@ impl WindowCloseTextureLeases {
                 continue;
             }
             if self.closing_windows.contains_key(&window_id) {
-                self.remove(window_id, &mut retired.texture_ids);
+                self.remove(window_id, &mut retired);
                 retired.lease_count = retired.lease_count.saturating_add(1);
             }
             while self.closing_windows.len() >= MAX_RETAINED_WINDOW_CLOSE_LEASES {
@@ -335,7 +341,7 @@ impl WindowCloseTextureLeases {
                 else {
                     break;
                 };
-                self.remove(oldest_window_id, &mut retired.texture_ids);
+                self.remove(oldest_window_id, &mut retired);
                 retired.lease_count = retired.lease_count.saturating_add(1);
             }
             for texture_id in &texture_ids {
@@ -358,7 +364,7 @@ impl WindowCloseTextureLeases {
 
     fn complete(&mut self, window_id: u64) -> RetiredWindowCloseLeases {
         let mut retired = RetiredWindowCloseLeases::default();
-        if self.remove(window_id, &mut retired.texture_ids) {
+        if self.remove(window_id, &mut retired) {
             retired.lease_count = 1;
         }
         retired
@@ -372,7 +378,7 @@ impl WindowCloseTextureLeases {
             .collect::<Vec<_>>();
         let mut retired = RetiredWindowCloseLeases::default();
         for window_id in expired_window_ids {
-            if self.remove(window_id, &mut retired.texture_ids) {
+            if self.remove(window_id, &mut retired) {
                 retired.lease_count = retired.lease_count.saturating_add(1);
             }
         }
@@ -383,10 +389,14 @@ impl WindowCloseTextureLeases {
         self.retained_texture_references.contains_key(&texture_id)
     }
 
-    fn remove(&mut self, window_id: u64, texture_ids: &mut Vec<i64>) -> bool {
+    fn remove(&mut self, window_id: u64, retired: &mut RetiredWindowCloseLeases) -> bool {
         let Some(lease) = self.closing_windows.remove(&window_id) else {
             return false;
         };
+        if retired.first_window_id.is_none() {
+            retired.first_window_id = Some(window_id);
+            retired.first_window_republished = self.published_windows.contains_key(&window_id);
+        }
         for texture_id in lease.texture_ids {
             let remove_reference = self
                 .retained_texture_references
@@ -398,7 +408,7 @@ impl WindowCloseTextureLeases {
             if remove_reference {
                 self.retained_texture_references.remove(&texture_id);
             }
-            texture_ids.push(texture_id);
+            retired.texture_ids.push(texture_id);
         }
         true
     }
@@ -484,6 +494,8 @@ pub struct FlutterRuntime {
     frame_interval: Duration,
     kms_frame_clock_enabled: bool,
     outputs_visible: Option<bool>,
+    lock_frame_gate: lock_frame::LockFrameGate,
+    fingerprint_scene: fingerprint_scene::FingerprintScene,
     published_text_input_state: Option<(bool, bool, bool, u32, u32, u64)>,
     frame_ready_observed: bool,
     last_pointer_timestamp_micros: usize,

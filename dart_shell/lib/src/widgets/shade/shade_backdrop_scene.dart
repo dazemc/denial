@@ -2,6 +2,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../theme/shell_theme.dart';
+import 'shade_expansion_motion.dart';
 import '../../theme/glass_configuration.dart';
 
 /// One screen-coordinate blur input for the shade. Glass keeps its per-surface
@@ -76,17 +77,12 @@ class RenderShadeBackdropScene extends RenderProxyBox {
   @override
   void paint(PaintingContext context, Offset offset) {
     if (_progress.value <= 0) return;
+    final blurFraction = ColorOsShadeMotion.blurFraction(_progress.value);
     // Dim the scene before taking its shared backdrop sample. The panel and
     // cards stay bright, and the shade follows interactive motion directly.
     context.canvas.drawRect(
       offset & size,
-      Paint()
-        ..color = Color.fromRGBO(
-          0,
-          0,
-          0,
-          0.2 * _progress.value.clamp(0.0, 1.0),
-        ),
+      Paint()..color = Color.fromRGBO(0, 0, 0, 0.2 * blurFraction),
     );
     if (_theme.transparencyMode == ShellTransparencyMode.blur &&
         _theme.backdropBlurSigma > 0 &&
@@ -102,7 +98,7 @@ class RenderShadeBackdropScene extends RenderProxyBox {
         final filter = _filter.layer ??= BackdropFilterLayer();
         filter
           ..filter = _theme
-              .backdropFilterConfigAt(1)
+              .backdropFilterConfigAt(blurFraction)
               .resolve(ImageFilterContext(bounds: offset & size))
           ..blendMode = BlendMode.src;
         _clip.layer = context.pushClipPath(

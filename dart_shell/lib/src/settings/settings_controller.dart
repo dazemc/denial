@@ -310,6 +310,14 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
+  void setWorkspaceSwitchingOrientation(WorkspaceSwitchingOrientation value) {
+    _update(
+      state.copyWith(
+        layout: state.layout.copyWith(workspaceSwitchingOrientation: value),
+      ),
+    );
+  }
+
   void setSystemBarThickness(double value) {
     _update(
       state.copyWith(

@@ -2129,6 +2129,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsTouchpadScrollSpeed => 'Finger scroll speed';
 
   @override
+  String get settingsTouchpadScrollingLayoutSwipeSpeed =>
+      'Scrolling layout swipe speed';
+
+  @override
   String get settingsMousePointerSpeed => 'Mouse pointer speed';
 
   @override
@@ -2329,6 +2333,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'Four-finger swipe right';
 
   @override
+  String get settingsShortcutGestureFourFingerSwipeUp => 'Four-finger swipe up';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeDown =>
+      'Four-finger swipe down';
+
+  @override
   String get settingsShortcutInputCategoryModifier => 'Modifier';
 
   @override
@@ -2398,6 +2409,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsShortcutActionToggleFullscreen =>
       'Enter or leave fullscreen';
+
+  @override
+  String get settingsShortcutActionToggleWindowAlwaysOnTop =>
+      'Toggle always on top';
 
   @override
   String get settingsShortcutActionReleasePointer => 'Release pointer';
@@ -2487,13 +2502,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsWindowLayoutDescription =>
-      'Stacking lets windows overlap and move freely. Tiling uses a dynamic binary tree while keeping transient windows floating.';
+      'Stacking lets windows overlap. Tiling divides the desktop dynamically. Scrolling follows focus along a strip that turns vertical with a quarter-turned monitor.';
 
   @override
   String get settingsWindowLayoutDwindle => 'Tiling';
 
   @override
   String get settingsWindowLayoutStacking => 'Stacking';
+
+  @override
+  String get settingsWindowLayoutScrolling => 'Scrolling';
 
   @override
   String get settingsWindowLayoutTitle => 'Window layout';
@@ -2510,6 +2528,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsWorkspaceCount => 'Workspace count';
+
+  @override
+  String get settingsWorkspaceSwitchingOrientation => 'Switching direction';
+
+  @override
+  String get settingsWorkspaceSwitchingHorizontal => 'Horizontal';
+
+  @override
+  String get settingsWorkspaceSwitchingVertical => 'Vertical';
 
   @override
   String workspaceLabel(int workspace) {
@@ -3641,5 +3668,151 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String settingsGlassRimPixels(String width) {
     return '$width px';
+  }
+
+  @override
+  String get lockFingerprintNotRecognized => 'Fingerprint not recognized';
+
+  @override
+  String get fingerprintSection => 'Fingerprint';
+
+  @override
+  String get fingerprintPasswordPrompt =>
+      'Enter your sudo password to manage fingerprints.';
+
+  @override
+  String get fingerprintSudoPassword => 'Sudo password';
+
+  @override
+  String get fingerprintContinue => 'Continue';
+
+  @override
+  String get fingerprintDescription =>
+      'Use your enrolled fingers to unlock Denial.';
+
+  @override
+  String get fingerprintEmptyTitle => 'No fingerprints enrolled';
+
+  @override
+  String get fingerprintEmptyDescription =>
+      'Choose a finger below to enroll your first fingerprint.';
+
+  @override
+  String get fingerprintChooseFinger => 'Finger to enroll';
+
+  @override
+  String get fingerprintEnroll => 'Enroll fingerprint';
+
+  @override
+  String get fingerprintAdd => 'Add fingerprint';
+
+  @override
+  String get fingerprintAuthenticationFailed =>
+      'Password verification failed. Try again.';
+
+  @override
+  String get fingerprintExpired => 'Enter your password again to continue.';
+
+  @override
+  String get fingerprintPreparing => 'Preparing the fingerprint reader…';
+
+  @override
+  String get fingerprintTouchSensor =>
+      'Touch and lift your selected finger on the sensor.';
+
+  @override
+  String get fingerprintEnrolled =>
+      'Fingerprint enrolled. You can now use it to unlock Denial.';
+
+  @override
+  String get fingerprintCancelled => 'Enrollment cancelled.';
+
+  @override
+  String get fingerprintDuplicate =>
+      'This fingerprint is already enrolled. Choose another finger.';
+
+  @override
+  String get fingerprintRetry =>
+      'Lift your finger and touch the sensor again, adjusting its position.';
+
+  @override
+  String get fingerprintUnavailable =>
+      'Fingerprint management could not complete. Check the reader and try again.';
+
+  @override
+  String fingerprintProgress(int completed, int total) {
+    return '$completed of $total scans';
+  }
+
+  @override
+  String get fingerprintLeftThumb => 'Left thumb';
+
+  @override
+  String get fingerprintLeftIndex => 'Left index finger';
+
+  @override
+  String get fingerprintLeftMiddle => 'Left middle finger';
+
+  @override
+  String get fingerprintLeftRing => 'Left ring finger';
+
+  @override
+  String get fingerprintLeftLittle => 'Left little finger';
+
+  @override
+  String get fingerprintRightThumb => 'Right thumb';
+
+  @override
+  String get fingerprintRightIndex => 'Right index finger';
+
+  @override
+  String get fingerprintRightMiddle => 'Right middle finger';
+
+  @override
+  String get fingerprintRightRing => 'Right ring finger';
+
+  @override
+  String get fingerprintRightLittle => 'Right little finger';
+
+  @override
+  String get mobileData => 'Mobile data';
+
+  @override
+  String get mobileConnected => 'Connected';
+
+  @override
+  String get mobileDisconnected => 'Not connected';
+
+  @override
+  String get mobileUnavailable => 'Mobile network unavailable';
+
+  @override
+  String get mobileChangeFailed => 'Unable to change mobile data';
+
+  @override
+  String get simPinTitle => 'Unlock SIM';
+
+  @override
+  String get simPinLabel => 'SIM PIN';
+
+  @override
+  String get simPinUnlock => 'Unlock SIM';
+
+  @override
+  String get simPinLater => 'Later';
+
+  @override
+  String get simPinFailed =>
+      'SIM could not be unlocked. Check your PIN and remaining attempts.';
+
+  @override
+  String get simPukRequired => 'SIM requires a PUK. Contact your carrier.';
+
+  @override
+  String get simLocked => 'SIM locked';
+
+  @override
+  String simPinRetries(int count) {
+    return '$count attempts remaining';
   }
 }

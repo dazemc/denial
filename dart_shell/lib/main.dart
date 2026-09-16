@@ -1,6 +1,6 @@
 import 'denial.dart';
 import 'denial_default_shell.dart';
 
-void main() {
-  runDenialShell(shell: const DenialShellApp());
+Future<void> main() async {
+  await runDenialShell(shell: const DenialShellApp());
 }

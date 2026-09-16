@@ -130,10 +130,33 @@ impl DpmsTopologyGuard {
 }
 
 #[cfg(feature = "flutter")]
+pub(super) fn synchronize_wake_gestures(scanouts: &[Scanout], events: &mut RuntimeState) {
+    for name in std::mem::take(&mut events.wake_gesture_outputs) {
+        let Some(scanout) = scanouts.iter().find(|s| s.output.name == name) else {
+            continue;
+        };
+        let output = scanout.output.id;
+        let powered = events
+            .output_power_requests
+            .get(&output)
+            .copied()
+            .unwrap_or(scanout.powered);
+        if powered && !events.fingerprint.exclusive_for(output) {
+            continue;
+        }
+        events.fingerprint.independent_wake();
+        let request = events.idle_policy.wake_output_now(output, Instant::now());
+        events.queue_idle_power_requests([request]);
+        info!(output = %name, "hardware double tap requested display wake");
+    }
+}
+
+#[cfg(feature = "flutter")]
 pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut RuntimeState) {
     if !events.power_button.take_toggle() {
         return;
     }
+    events.fingerprint.independent_wake();
     // Queued requests are the effective state until the atomic KMS gate runs.
     let outputs = scanouts
         .iter()
@@ -167,6 +190,10 @@ pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut Runtim
 
 #[cfg(feature = "flutter")]
 pub(super) fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeState, now: Instant) {
+    // Presentation owns a bounded wake and restores its prior power state.
+    if events.fingerprint.active() {
+        return;
+    }
     let inhibited = events
         .wayland
         .as_mut()
@@ -398,6 +425,9 @@ pub(super) fn apply_output_power_requests(
     }
 
     if !power_on.is_empty() {
+        // Resume Flutter to build the lock UI, but KMS remains off until a
+        // frame tagged after its layout acknowledgement passes the wake gate.
+        runtime.prepare_locked_wake()?;
         for &(output, scanout_index) in &power_on {
             let framebuffer_index = scheduler
                 .stable_framebuffer_index(output)

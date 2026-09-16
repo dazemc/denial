@@ -234,6 +234,8 @@ generated.ShortcutActionKind _shortcutActionToWire(
       generated.ShortcutActionKind.ToggleMaximize,
     DenialShortcutAction.toggleFullscreen =>
       generated.ShortcutActionKind.ToggleFullscreen,
+    DenialShortcutAction.toggleWindowAlwaysOnTop =>
+      generated.ShortcutActionKind.ToggleWindowAlwaysOnTop,
     DenialShortcutAction.releasePointer =>
       generated.ShortcutActionKind.ReleasePointer,
     DenialShortcutAction.lockScreen => generated.ShortcutActionKind.LockScreen,
@@ -334,6 +336,8 @@ DenialShortcutAction _shortcutActionFromWire(
       DenialShortcutAction.toggleMaximize,
     generated.ShortcutActionKind.ToggleFullscreen =>
       DenialShortcutAction.toggleFullscreen,
+    generated.ShortcutActionKind.ToggleWindowAlwaysOnTop =>
+      DenialShortcutAction.toggleWindowAlwaysOnTop,
     generated.ShortcutActionKind.ReleasePointer =>
       DenialShortcutAction.releasePointer,
     generated.ShortcutActionKind.LockScreen => DenialShortcutAction.lockScreen,

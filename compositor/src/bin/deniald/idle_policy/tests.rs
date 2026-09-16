@@ -317,6 +317,111 @@ fn equal_dpms_and_suspend_thresholds_commit_display_off_first() {
 }
 
 #[test]
+fn equal_lock_and_dpms_thresholds_delay_lock_until_after_display_off() {
+    let started = Instant::now();
+    let mut policy = IdlePolicy::default();
+    policy.configure(
+        configuration(
+            Some(Duration::from_secs(10)),
+            Some(Duration::from_secs(10)),
+            None,
+        ),
+        started,
+    );
+
+    let display_off = policy.evaluate(
+        started + Duration::from_secs(10),
+        false,
+        [(output(1), true)],
+    );
+    assert!(!display_off.lock);
+    assert_eq!(
+        display_off.power_requests,
+        [IdlePowerRequest {
+            output: output(1),
+            powered: false,
+        }]
+    );
+    assert_eq!(
+        policy.next_deadline(),
+        Some(started + Duration::from_secs(15))
+    );
+    assert!(
+        policy
+            .evaluate(
+                started + Duration::from_secs(14),
+                false,
+                [(output(1), false)],
+            )
+            .eq(&IdlePolicyActions::default())
+    );
+
+    let lock = policy.evaluate(
+        started + Duration::from_secs(15),
+        false,
+        [(output(1), false)],
+    );
+    assert!(lock.lock);
+    assert!(lock.power_requests.is_empty());
+}
+
+#[test]
+fn equal_suspend_threshold_waits_for_the_delayed_lock() {
+    let started = Instant::now();
+    let mut policy = IdlePolicy::default();
+    policy.configure(
+        configuration(
+            Some(Duration::from_secs(10)),
+            Some(Duration::from_secs(10)),
+            Some(Duration::from_secs(10)),
+        ),
+        started,
+    );
+
+    let display_off = policy.evaluate(
+        started + Duration::from_secs(10),
+        false,
+        [(output(1), true)],
+    );
+    assert!(!display_off.lock);
+    assert!(!display_off.suspend);
+    assert_eq!(display_off.power_requests.len(), 1);
+    assert_eq!(
+        policy.next_deadline(),
+        Some(started + Duration::from_secs(15))
+    );
+
+    let lock_and_suspend = policy.evaluate(
+        started + Duration::from_secs(15),
+        false,
+        [(output(1), false)],
+    );
+    assert!(lock_and_suspend.lock);
+    assert!(lock_and_suspend.suspend);
+    assert!(lock_and_suspend.power_requests.is_empty());
+}
+
+#[test]
+fn disabled_dpms_does_not_delay_an_equal_configured_lock_timeout() {
+    let started = Instant::now();
+    let mut policy = IdlePolicy::default();
+    policy.configure(
+        configuration(Some(Duration::from_secs(10)), None, None),
+        started,
+    );
+
+    assert!(
+        policy
+            .evaluate(
+                started + Duration::from_secs(10),
+                false,
+                [(output(1), true)],
+            )
+            .lock
+    );
+}
+
+#[test]
 fn inhibition_resets_every_action_and_can_wake_a_blanked_output() {
     let started = Instant::now();
     let mut policy = IdlePolicy::default();
@@ -389,6 +494,38 @@ fn manual_power_request_is_not_undone_by_activity() {
     assert!(
         policy
             .note_activity(started + Duration::from_secs(2))
+            .is_empty()
+    );
+}
+
+#[test]
+fn hardware_wake_is_one_way_targets_one_output_and_resets_idle() {
+    let now = Instant::now();
+    let mut policy = IdlePolicy::default();
+    policy.configure(configuration(None, Some(Duration::from_secs(1)), None), now);
+    policy.blank_now([(output(1), true), (output(2), true)]);
+    policy.note_external_power_request(output(1), false);
+    let request = policy.wake_output_now(output(1), now + Duration::from_secs(2));
+    assert_eq!(
+        request,
+        IdlePowerRequest {
+            output: output(1),
+            powered: true
+        }
+    );
+    assert!(policy.blanked_outputs.contains(&output(2)));
+    assert_eq!(
+        policy.wake_output_now(output(1), now + Duration::from_secs(2)),
+        request
+    );
+    assert!(
+        policy
+            .evaluate(
+                now + Duration::from_millis(2500),
+                false,
+                [(output(1), true), (output(2), false)]
+            )
+            .power_requests
             .is_empty()
     );
 }

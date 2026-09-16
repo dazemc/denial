@@ -15,7 +15,7 @@ use tracing::{info, warn};
 
 use super::window_layout::LayoutDirection;
 
-const SHORTCUT_SCHEMA_VERSION: u64 = 8;
+const SHORTCUT_SCHEMA_VERSION: u64 = 9;
 const OLDEST_SHORTCUT_SCHEMA_VERSION: u64 = 1;
 const MAX_SHORTCUT_FILE_BYTES: usize = 128 * 1024;
 pub(super) const MAX_SHORTCUTS: usize = 256;
@@ -76,6 +76,11 @@ const SHORTCUT_V5_ADDITIONS: &[(&str, ShortcutAction)] = &[
 const SHORTCUT_V6_ADDITIONS: &[(&str, ShortcutAction)] = &[
     ("FourFingerSwipeRight", ShortcutAction::PreviousWorkspace),
     ("FourFingerSwipeLeft", ShortcutAction::NextWorkspace),
+];
+
+const SHORTCUT_V9_ADDITIONS: &[(&str, ShortcutAction)] = &[
+    ("FourFingerSwipeDown", ShortcutAction::PreviousWorkspace),
+    ("FourFingerSwipeUp", ShortcutAction::NextWorkspace),
 ];
 
 const KEY_ESCAPE: u32 = 1;
@@ -147,6 +152,8 @@ pub(super) enum ShortcutGesture {
     ThreeFingerSwipeUp,
     ThreeFingerSwipeLeft,
     ThreeFingerSwipeRight,
+    FourFingerSwipeUp,
+    FourFingerSwipeDown,
     FourFingerSwipeLeft,
     FourFingerSwipeRight,
 }
@@ -157,6 +164,8 @@ impl ShortcutGesture {
             Self::ThreeFingerSwipeUp => "ThreeFingerSwipeUp",
             Self::ThreeFingerSwipeLeft => "ThreeFingerSwipeLeft",
             Self::ThreeFingerSwipeRight => "ThreeFingerSwipeRight",
+            Self::FourFingerSwipeUp => "FourFingerSwipeUp",
+            Self::FourFingerSwipeDown => "FourFingerSwipeDown",
             Self::FourFingerSwipeLeft => "FourFingerSwipeLeft",
             Self::FourFingerSwipeRight => "FourFingerSwipeRight",
         }
@@ -179,6 +188,7 @@ pub(super) enum ShortcutAction {
     MinimizeAllWindows,
     ToggleMaximize,
     ToggleFullscreen,
+    ToggleWindowAlwaysOnTop,
     ReleasePointer,
     LockScreen,
     VolumeUp,
@@ -222,7 +232,7 @@ pub(super) enum ShortcutAction {
 }
 
 impl ShortcutAction {
-    pub(super) const ALL: [Self; 53] = [
+    pub(super) const ALL: [Self; 54] = [
         Self::OpenApplications,
         Self::OpenDashboard,
         Self::OpenSettings,
@@ -236,6 +246,7 @@ impl ShortcutAction {
         Self::ToggleVerticalMaximize,
         Self::ToggleMaximize,
         Self::ToggleFullscreen,
+        Self::ToggleWindowAlwaysOnTop,
         Self::ReleasePointer,
         Self::LockScreen,
         Self::Shutdown,
@@ -811,22 +822,30 @@ fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, Short
             SHORTCUT_V4_ADDITIONS,
             SHORTCUT_V5_ADDITIONS,
             SHORTCUT_V6_ADDITIONS,
+            SHORTCUT_V9_ADDITIONS,
         ],
         2 => &[
             SHORTCUT_V3_ADDITIONS,
             SHORTCUT_V4_ADDITIONS,
             SHORTCUT_V5_ADDITIONS,
             SHORTCUT_V6_ADDITIONS,
+            SHORTCUT_V9_ADDITIONS,
         ],
         3 => &[
             SHORTCUT_V4_ADDITIONS,
             SHORTCUT_V5_ADDITIONS,
             SHORTCUT_V6_ADDITIONS,
+            SHORTCUT_V9_ADDITIONS,
         ],
-        4 => &[SHORTCUT_V5_ADDITIONS, SHORTCUT_V6_ADDITIONS],
-        5 => &[SHORTCUT_V6_ADDITIONS],
-        6 => &[],
-        7 => &[],
+        4 => &[
+            SHORTCUT_V5_ADDITIONS,
+            SHORTCUT_V6_ADDITIONS,
+            SHORTCUT_V9_ADDITIONS,
+        ],
+        5 => &[SHORTCUT_V6_ADDITIONS, SHORTCUT_V9_ADDITIONS],
+        6 => &[SHORTCUT_V9_ADDITIONS],
+        7 => &[SHORTCUT_V9_ADDITIONS],
+        8 => &[SHORTCUT_V9_ADDITIONS],
         version => {
             return Err(ShortcutError::Document(format!(
                 "shortcut version {version} is not supported; expected {OLDEST_SHORTCUT_SCHEMA_VERSION}..={SHORTCUT_SCHEMA_VERSION}"
@@ -1118,6 +1137,7 @@ fn default_shortcut_file() -> ShortcutFile {
             .chain(SHORTCUT_V4_ADDITIONS.iter().copied())
             .chain(SHORTCUT_V5_ADDITIONS.iter().copied())
             .chain(SHORTCUT_V6_ADDITIONS.iter().copied())
+            .chain(SHORTCUT_V9_ADDITIONS.iter().copied())
             .map(|(shortcut, action)| ShortcutBinding {
                 shortcut: shortcut.to_owned(),
                 target: ShortcutTarget::DenialAction { action },
@@ -1265,6 +1285,8 @@ fn parse_gesture(name: &str) -> Option<ShortcutGesture> {
         "threefingerswiperight" | "3fingerswiperight" => {
             Some(ShortcutGesture::ThreeFingerSwipeRight)
         }
+        "fourfingerswipeup" | "4fingerswipeup" => Some(ShortcutGesture::FourFingerSwipeUp),
+        "fourfingerswipedown" | "4fingerswipedown" => Some(ShortcutGesture::FourFingerSwipeDown),
         "fourfingerswipeleft" | "4fingerswipeleft" => Some(ShortcutGesture::FourFingerSwipeLeft),
         "fourfingerswiperight" | "4fingerswiperight" => Some(ShortcutGesture::FourFingerSwipeRight),
         _ => None,
@@ -1579,6 +1601,8 @@ pub(super) fn supported_inputs() -> Vec<ShortcutInputDefinition> {
             (ShortcutGesture::ThreeFingerSwipeUp, "3FingerSwipeUp"),
             (ShortcutGesture::ThreeFingerSwipeLeft, "3FingerSwipeLeft"),
             (ShortcutGesture::ThreeFingerSwipeRight, "3FingerSwipeRight"),
+            (ShortcutGesture::FourFingerSwipeUp, "4FingerSwipeUp"),
+            (ShortcutGesture::FourFingerSwipeDown, "4FingerSwipeDown"),
             (ShortcutGesture::FourFingerSwipeLeft, "4FingerSwipeLeft"),
             (ShortcutGesture::FourFingerSwipeRight, "4FingerSwipeRight"),
         ]
@@ -1673,6 +1697,7 @@ pub(super) enum ShortcutDisposition {
     RequestMinimizeAll,
     RequestToggleMaximize,
     RequestToggleFullscreen,
+    RequestToggleWindowAlwaysOnTop,
     RequestReleasePointer,
     RequestLock,
     RequestVolumeUp,
@@ -1755,6 +1780,14 @@ impl ShortcutEngine {
             modifiers |= Modifier::Shift.flag();
         }
         modifiers
+    }
+
+    pub(super) fn gesture_invokes(&self, gesture: ShortcutGesture, action: ShortcutAction) -> bool {
+        self.bindings.iter().any(|binding| {
+            binding.trigger.modifiers == 0
+                && binding.trigger.key == TriggerKey::Gesture(gesture)
+                && binding.target == (ShortcutTarget::DenialAction { action })
+        })
     }
 
     pub(super) fn observe_gesture(&mut self, gesture: ShortcutGesture) -> ShortcutDisposition {
@@ -2008,11 +2041,14 @@ impl ShortcutEngine {
 
 fn window_switcher_gesture_step(gesture: ShortcutGesture) -> ShortcutDisposition {
     match gesture {
-        ShortcutGesture::ThreeFingerSwipeRight | ShortcutGesture::FourFingerSwipeRight => {
+        ShortcutGesture::ThreeFingerSwipeRight
+        | ShortcutGesture::FourFingerSwipeRight
+        | ShortcutGesture::FourFingerSwipeDown => {
             ShortcutDisposition::RequestWindowSwitcherPrevious
         }
         ShortcutGesture::ThreeFingerSwipeUp
         | ShortcutGesture::ThreeFingerSwipeLeft
+        | ShortcutGesture::FourFingerSwipeUp
         | ShortcutGesture::FourFingerSwipeLeft => ShortcutDisposition::RequestWindowSwitcherNext,
     }
 }
@@ -2033,6 +2069,7 @@ impl From<ShortcutAction> for ShortcutDisposition {
             ShortcutAction::MinimizeAllWindows => Self::RequestMinimizeAll,
             ShortcutAction::ToggleMaximize => Self::RequestToggleMaximize,
             ShortcutAction::ToggleFullscreen => Self::RequestToggleFullscreen,
+            ShortcutAction::ToggleWindowAlwaysOnTop => Self::RequestToggleWindowAlwaysOnTop,
             ShortcutAction::ReleasePointer => Self::RequestReleasePointer,
             ShortcutAction::LockScreen => Self::RequestLock,
             ShortcutAction::VolumeUp => Self::RequestVolumeUp,
@@ -2118,6 +2155,7 @@ mod tests {
                 1 + SHORTCUT_V4_ADDITIONS.len()
                     + SHORTCUT_V5_ADDITIONS.len()
                     + SHORTCUT_V6_ADDITIONS.len()
+                    + SHORTCUT_V9_ADDITIONS.len()
             )
         );
         assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
@@ -2193,10 +2231,10 @@ mod tests {
 
         assert_eq!(remove_retired_shortcut_actions(&mut document), 1);
         let mut file = serde_json::from_value::<ShortcutFile>(document).unwrap();
-        assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(0));
+        assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(2));
         assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
         assert_eq!(file.revision, 13);
-        assert_eq!(file.shortcuts.len(), 1);
+        assert_eq!(file.shortcuts.len(), 3);
         assert_eq!(file.shortcuts[0].shortcut, "Super+Alt+Right");
     }
 
@@ -2213,7 +2251,7 @@ mod tests {
             }],
         };
 
-        assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(1));
+        assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(3));
         assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
         assert_eq!(file.revision, 12);
         assert!(file.shortcuts.iter().any(|binding| {
@@ -2255,7 +2293,7 @@ mod tests {
             ],
         };
 
-        assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(1));
+        assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(3));
         assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
         assert_eq!(file.revision, 15);
         assert!(matches!(
@@ -2280,6 +2318,14 @@ mod tests {
         );
         assert_eq!(
             engine.observe_gesture(ShortcutGesture::FourFingerSwipeLeft),
+            ShortcutDisposition::RequestNextWorkspace
+        );
+        assert_eq!(
+            engine.observe_gesture(ShortcutGesture::FourFingerSwipeDown),
+            ShortcutDisposition::RequestPreviousWorkspace
+        );
+        assert_eq!(
+            engine.observe_gesture(ShortcutGesture::FourFingerSwipeUp),
             ShortcutDisposition::RequestNextWorkspace
         );
     }

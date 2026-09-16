@@ -38,6 +38,10 @@ enum DenialShellAction {
   wallpaper,
   openSettings,
   workspaceChanged,
+  focusLeft,
+  focusRight,
+  focusUp,
+  focusDown,
 }
 
 class DenialShellActionEvent {
@@ -2613,6 +2617,10 @@ class DenialBridge {
           wire.ShellActionKind.OpenSettings => DenialShellAction.openSettings,
           wire.ShellActionKind.WorkspaceChanged =>
             DenialShellAction.workspaceChanged,
+          wire.ShellActionKind.FocusLeft => DenialShellAction.focusLeft,
+          wire.ShellActionKind.FocusRight => DenialShellAction.focusRight,
+          wire.ShellActionKind.FocusUp => DenialShellAction.focusUp,
+          wire.ShellActionKind.FocusDown => DenialShellAction.focusDown,
         };
         if (!_shellActions.isClosed) {
           _shellActions.add(
@@ -2851,6 +2859,7 @@ class DenialBridge {
       final action = switch (event.action) {
         wire.WindowActionKind.Minimize => DenialWindowAction.minimize,
         wire.WindowActionKind.Maximize => DenialWindowAction.maximize,
+        wire.WindowActionKind.Fullscreen => DenialWindowAction.fullscreen,
         wire.WindowActionKind.Restore => DenialWindowAction.restore,
         wire.WindowActionKind.ToggleMaximize =>
           DenialWindowAction.toggleMaximize,

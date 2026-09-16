@@ -19,19 +19,19 @@
     "dart_version": "3.12.2",
     "dart_revision": "d684a576a6aa954ae107a03b2b4e1d61c3bebe93",
     "flutter_repository": "https://github.com/denialwm/flutter.git",
-    "flutter_fork_revision": "59a828a046906f3643a922dfd7438339145a58d9",
+    "flutter_fork_revision": "c8894357b3a91902c358e8ad5cf0ebc85d45e83e",
     "skia_repository": "https://github.com/denialwm/skia.git",
     "skia_fork_revision": "0ee042f542b3e79f5ac49115387718c6bb3d7d34"
   },
   "source_lock": {
     "path": "prebuilt/flutter-engine/SOURCE_LOCK.json",
-    "sha256": "f4209ebdb42a8b8f81b1e2b1079da4e4529e9baa63e887df767c404609d90c58"
+    "sha256": "ceead0e362ac6b786d159244ce00a676c7d656e195b4c34ab440aa03d430062e"
   },
   "artifacts": {
-    "debug_engine_sha256": "2bba4faca2cd88cbb1ab526ea6a937d237b92b10c9043386cba1204eefd0ded6",
-    "debug_engine_args_sha256": "001241317ea48b953f4de02085479c6709d1c5dc9f2b0b30c7361a9d3a9716f4",
-    "profile_engine_sha256": "44e3bacc9c089e4d76ec43cf151eeaf65218e18dbd964a6eca09cd032daf304e",
-    "profile_engine_args_sha256": "09cb36527fa344e62e0527e8be3a12144e31de046fac960b8257c5c5da7c21bc",
+    "debug_engine_sha256": "4c353688425bcec94f037add7082cb59081a903f60fdbcf4a4e6ffa728863283",
+    "debug_engine_args_sha256": "efab9e028582f968f0935f4c8f3fab93475fe2cf4eadce370381aca89a96df00",
+    "profile_engine_sha256": "488a85e27a88899e9a720fb9b9a290893cf2b8488362016dd80aa80f6b19a8a3",
+    "profile_engine_args_sha256": "2ba41bcf1c36011dc2df0c75b644ec598044591f865b92872610e0c1d5016f0a",
     "flutter_tool_sha256": "e9bafdf002e980c7f239e68b2f2448e54f3641ce245803152c0cbdd3222db38f",
     "dart_executable_sha256": "c03ad868b5c53e31461b0fef22dc6eb6aeb56b7567efff6ca488ce9c4a6f8a6a",
     "dartaotruntime_sha256": "297f6b68adf22140d0bfc92cf974dc0e22bd54be6e15d730b911ad5b661d6a89",

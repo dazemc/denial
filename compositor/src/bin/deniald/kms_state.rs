@@ -1251,6 +1251,24 @@ impl FlutterLauncher {
         (reload_requested, self.ui_development.state_snapshot())
     }
 
+    pub(super) fn retain_runtime_after_switch_failure(
+        &mut self,
+        runtime: &mut flutter_runtime::FlutterRuntime,
+        error: &dyn std::fmt::Display,
+    ) {
+        let failed_mode = self.ui_development.desired_mode();
+        self.ui_development
+            .runtime_switch_failed_preserving_active(failed_mode, error);
+        if let Err(publication_error) = self.publish_ui_development_state(runtime) {
+            warn!(
+                %publication_error,
+                %error,
+                ?failed_mode,
+                "could not publish retained Flutter runtime after runtime switch failure"
+            );
+        }
+    }
+
     fn publish_ui_development_state(
         &self,
         runtime: &mut flutter_runtime::FlutterRuntime,
@@ -1775,6 +1793,23 @@ impl RestoreState {
 
         let mut outputs = Vec::with_capacity(scanouts.len());
         for scanout in scanouts {
+            let Some(source_framebuffer) = primary_framebuffer(drm, scanout.surface.plane())?
+            else {
+                outputs.push(SavedOutputState {
+                    id: scanout.output.id,
+                    name: scanout.output.name.clone(),
+                    original_mode: scanout.original_mode,
+                    framebuffer: None,
+                    properties: Vec::new(),
+                });
+                info!(
+                    output = scanout.output.name,
+                    crtc = ?scanout.output.crtc,
+                    plane = ?scanout.surface.plane(),
+                    "primary plane had no predecessor framebuffer"
+                );
+                continue;
+            };
             let mut properties = Vec::new();
             capture_named_properties(
                 drm,
@@ -1791,8 +1826,12 @@ impl RestoreState {
                 PLANE_PROPERTIES,
                 &mut plane_properties,
             )?;
-            let framebuffer =
-                capture_owned_framebuffer(drm, scanout.surface.plane(), &mut plane_properties)?;
+            let framebuffer = capture_owned_framebuffer(
+                drm,
+                scanout.surface.plane(),
+                source_framebuffer,
+                &mut plane_properties,
+            )?;
             properties.extend_from_slice(&plane_properties);
             outputs.push(SavedOutputState {
                 id: scanout.output.id,
@@ -1975,19 +2014,32 @@ fn capture_owned_mode_blob(
     Ok(())
 }
 
-fn capture_owned_framebuffer(
+fn primary_framebuffer(
     drm: &DrmDevice,
     plane: plane::Handle,
-    destination: &mut Vec<SavedAtomicProperty>,
-) -> Result<framebuffer::Handle, Box<dyn Error>> {
+) -> Result<Option<framebuffer::Handle>, Box<dyn Error>> {
     let fb_property = named_property(drm, plane, "FB_ID")?;
     let source_raw = drm
         .get_properties(plane)?
         .into_iter()
         .find_map(|(handle, value)| (handle == fb_property).then_some(value))
         .ok_or("primary plane has no FB_ID value")?;
-    let source = from_u32::<framebuffer::Handle>(u32::try_from(source_raw)?)
-        .ok_or("primary plane is not scanning out a framebuffer")?;
+    framebuffer_from_property_value(source_raw)
+}
+
+fn framebuffer_from_property_value(
+    value: u64,
+) -> Result<Option<framebuffer::Handle>, Box<dyn Error>> {
+    Ok(from_u32::<framebuffer::Handle>(u32::try_from(value)?))
+}
+
+fn capture_owned_framebuffer(
+    drm: &DrmDevice,
+    plane: plane::Handle,
+    source: framebuffer::Handle,
+    destination: &mut Vec<SavedAtomicProperty>,
+) -> Result<framebuffer::Handle, Box<dyn Error>> {
+    let fb_property = named_property(drm, plane, "FB_ID")?;
     let source_info = drm.get_planar_framebuffer(source)?;
     let alias_buffer = AliasedPlanarBuffer {
         size: source_info.size(),

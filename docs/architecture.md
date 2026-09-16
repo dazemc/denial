@@ -223,14 +223,19 @@ Touchpad preferences live in the native-owned `touchpad` section:
 {
   "touchpad": {
     "tapToClickEnabled": true,
-    "naturalScrollEnabled": false
+    "naturalScrollEnabled": false,
+    "scrollSpeedFactor": 1.0,
+    "scrollingLayoutSwipeSpeedFactor": 1.0
   }
 }
 ```
 
-Denial applies these preferences through libinput when a touchpad appears and
-on every live update. The shell receives touchpad presence separately so it
-only exposes the touchpad page when suitable hardware is connected.
+Denial applies the device preferences through libinput when a touchpad appears
+and on every live update. The scrolling-layout swipe factor instead scales only
+the compositor-owned continuous three-finger gesture, including its release
+projection; it does not affect two-finger content scrolling or shortcut swipes.
+The shell receives touchpad presence separately so controls are disabled when
+no suitable hardware is connected.
 
 ## Desktop Settings portal
 

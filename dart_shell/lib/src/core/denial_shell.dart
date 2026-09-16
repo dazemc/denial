@@ -27,6 +27,8 @@ import 'shell_overlay_host.dart';
 import 'shell_runtime_bindings.dart';
 import 'shell_scene.dart';
 import 'shell_secure_stage.dart';
+import 'fingerprint_stage.dart';
+import '../state/fingerprint_scene.dart';
 
 const _shellDragDevices = <PointerDeviceKind>{
   PointerDeviceKind.touch,
@@ -74,7 +76,7 @@ class DenialShell extends ConsumerWidget {
     );
     final appearance = presentation.appearance;
     final startupCursorThemeId = ref
-        .watch(startupEnvironmentProvider)['DENIA_CURSOR_THEME']
+        .watch(startupEnvironmentProvider)['DENIAL_CURSOR_THEME']
         ?.trim();
     final cursorTheme = resolveShellCursorTheme(
       ref.watch(availableShellCursorThemesProvider),
@@ -114,22 +116,31 @@ class DenialShell extends ConsumerWidget {
       profile: effectiveProfile,
       scene: effectiveProfile == ShellProfile.mobile ? mobile : desktop,
     );
-    final content = ShellCursorHost(
-      theme: effectiveProfile == ShellProfile.desktop
-          ? cursorTheme
-          : ShellCursorThemes.bibataModernIce,
-      platformCursorShapes: bridge.cursorShapes,
-      platformCursorStates: bridge.cursorStates,
-      platformCursorPositions: bridge.cursorPositions,
-      platformDragIcons: bridge.dragIcons,
-      hideCursor: hideCursor,
-      displayLayout: displayLayout,
-      cursorSize: appearance.cursorSize,
-      onCursorStatePresented: bridge.acknowledgeCursorPresented,
-      benchmarkSocket: ref.watch(
-        startupEnvironmentProvider,
-      )['DENIAL_CURSOR_BENCHMARK_SOCKET'],
-      child: ShellOverlayHost(child: scene),
+    final fingerprint = ref.watch(fingerprintSceneProvider);
+    final locked = ref.watch(
+      shellControllerProvider.select((state) => state.locked),
+    );
+    final content = FingerprintStage(
+      scene: fingerprint,
+      locked: locked,
+      onLaidOut: ref.read(fingerprintSceneProvider.notifier).laidOut,
+      child: ShellCursorHost(
+        theme: effectiveProfile == ShellProfile.desktop
+            ? cursorTheme
+            : ShellCursorThemes.bibataModernIce,
+        platformCursorShapes: bridge.cursorShapes,
+        platformCursorStates: bridge.cursorStates,
+        platformCursorPositions: bridge.cursorPositions,
+        platformDragIcons: bridge.dragIcons,
+        hideCursor: hideCursor,
+        displayLayout: displayLayout,
+        cursorSize: appearance.cursorSize,
+        onCursorStatePresented: bridge.acknowledgeCursorPresented,
+        benchmarkSocket: ref.watch(
+          startupEnvironmentProvider,
+        )['DENIAL_CURSOR_BENCHMARK_SOCKET'],
+        child: ShellOverlayHost(child: scene),
+      ),
     );
 
     return ShellRuntimeBindings(

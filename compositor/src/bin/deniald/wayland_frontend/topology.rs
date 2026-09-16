@@ -6,15 +6,14 @@ use denial_core::topology::{
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::desktop::Window;
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Size, Transform};
 use tracing::info;
 
+use super::managed_window::{ClientWindowState, ManagedWindow};
 #[cfg(feature = "flutter")]
 use super::shm_cache_budget_for_atlas;
-use super::window_management::toplevel_has_state;
 use super::{RuntimeState, WaylandFrontend, WaylandOutput};
 
 struct WindowTopologyRecord {
@@ -167,16 +166,9 @@ impl WaylandFrontend {
             .elements()
             .filter_map(|window| {
                 let root_surface = self.window_root_surface(window)?;
-                let (fullscreen, maximized) = if let Some(toplevel) = window.toplevel() {
-                    (
-                        toplevel_has_state(toplevel, xdg_toplevel::State::Fullscreen),
-                        toplevel_has_state(toplevel, xdg_toplevel::State::Maximized),
-                    )
-                } else if let Some(x11) = window.x11_surface() {
-                    (x11.is_fullscreen(), x11.is_maximized())
-                } else {
-                    (false, false)
-                };
+                let client = ManagedWindow::new(window)
+                    .map(|window| window.facts().client_state)
+                    .unwrap_or_else(ClientWindowState::default);
                 Some(WindowTopologyRecord {
                     window: window.clone(),
                     root_surface: root_surface.clone(),
@@ -185,8 +177,8 @@ impl WaylandFrontend {
                         .restore_window_geometries
                         .get(&root_surface.id())
                         .copied(),
-                    fullscreen,
-                    maximized,
+                    fullscreen: client.fullscreen,
+                    maximized: client.maximized,
                 })
             })
             .collect::<Vec<_>>();
@@ -327,7 +319,7 @@ impl WaylandFrontend {
                     toplevel.send_pending_configure();
                 }
             }
-            self.set_window_geometry_target(&record.window, target);
+            self.set_window_geometry_target_preserving_authority(&record.window, target);
             migrated_windows += 1;
         }
 
@@ -403,6 +395,7 @@ impl WaylandFrontend {
         }
         self.rebuild_window_layout();
         self.space.refresh();
+        self.refresh_image_copy_constraints();
         info!(
             epoch = snapshot.epoch,
             outputs = self.outputs.len(),

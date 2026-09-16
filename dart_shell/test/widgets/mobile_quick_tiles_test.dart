@@ -57,11 +57,7 @@ void main() {
       for (final element in find.byType(QuickTile).evaluate()) {
         final tile = element.widget as QuickTile;
         final target = find.byWidget(tile);
-        await tester.tapAt(
-          tile.wide
-              ? tester.getTopLeft(target) + const Offset(30, 90)
-              : tester.getCenter(target),
-        );
+        await tester.tapAt(tester.getCenter(target));
       }
       for (final icon in find.byIcon(Icons.chevron_right_rounded).evaluate()) {
         await tester.tap(find.byWidget(icon.widget));

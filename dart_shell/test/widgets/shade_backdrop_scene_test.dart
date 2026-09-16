@@ -99,13 +99,17 @@ void main() {
   });
 
   test('glass backing follows dark and light appearance at shared opacity', () {
-    const glass = ShellThemeData(transparencyMode: ShellTransparencyMode.glass);
+    const glass = ShellThemeData(
+      transparencyMode: ShellTransparencyMode.glass,
+      glass: ShellGlassConfiguration(opacity: 0.17),
+    );
     final color = glass.panelColor(const Color(0xff123456));
     expect(color.a, closeTo(0.17, 0.0001));
     expect((color.r, color.g, color.b), (0.0, 0.0, 0.0));
     final light = glass.copyWith(
       glass: const ShellGlassConfiguration(
         appearance: ShellGlassAppearance.light,
+        opacity: 0.17,
       ),
     );
     final lightColor = light.panelColor(const Color(0xff123456));

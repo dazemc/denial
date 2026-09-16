@@ -9,13 +9,13 @@ import '../../state/desktop_notifications.dart';
 import '../../state/shell_controller.dart';
 import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
-import '../../theme/tokens.dart';
 import '../notification_banner.dart';
+import '../mobile_ui_metrics.dart';
 import 'notification_shade_list.dart';
 import 'shade_backdrop_scene.dart';
 import 'shade_dismiss_gesture.dart';
 
-/// A separate scrollable notification stack below the dropdown's handle.
+/// A separate scrollable notification stack for the notification page.
 /// Only a completed close rearms the staggered entrance, never a drag reversal.
 class MobileNotificationHistory extends ConsumerStatefulWidget {
   const MobileNotificationHistory({
@@ -149,28 +149,59 @@ class _MobileNotificationHistoryState
             entrance: _entrance,
             delegate: SliverChildBuilderDelegate(
               (context, index) {
+                if (index == records.length) {
+                  final padding = MediaQuery.viewPaddingOf(context);
+                  final metrics = MobileUiMetrics.of(context);
+                  return _ColorOsNotificationReveal(
+                    entrance: _entrance,
+                    index: index,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        padding.left +
+                            metrics.visual(
+                              MobileNotificationCard.horizontalMargin,
+                            ),
+                        0,
+                        padding.right +
+                            metrics.visual(
+                              MobileNotificationCard.horizontalMargin,
+                            ),
+                        metrics.visual(MobileNotificationMetrics.rowSpacing),
+                      ),
+                      child: const Align(
+                        alignment: Alignment.centerRight,
+                        child: ClearNotificationHistoryButton(),
+                      ),
+                    ),
+                  );
+                }
                 final record = records[index];
-                return _HistoryNotification(
-                  key: ValueKey(record.notification.id),
-                  record: record,
-                  preview: preview,
-                  interactive: !locked,
-                  onDismiss: () =>
-                      controller.dismissFromHistory(record.notification.id),
-                  onOpen: () {
-                    if (controller.invokeDefaultAction(
-                      record.notification.id,
-                    )) {
-                      ref
-                          .read(shellControllerProvider.notifier)
-                          .closeQuickSettings();
-                    }
-                  },
-                  onAction: (key) =>
-                      controller.invokeAction(record.notification.id, key),
+                return _ColorOsNotificationReveal(
+                  entrance: _entrance,
+                  index: index,
+                  child: _HistoryNotification(
+                    key: ValueKey(record.notification.id),
+                    record: record,
+                    preview: preview,
+                    interactive: !locked,
+                    onDismiss: () =>
+                        controller.dismissFromHistory(record.notification.id),
+                    onOpen: () {
+                      if (controller.invokeDefaultAction(
+                        record.notification.id,
+                      )) {
+                        ref
+                            .read(shellControllerProvider.notifier)
+                            .closeQuickSettings();
+                      }
+                    },
+                    onAction: (key) =>
+                        controller.invokeAction(record.notification.id, key),
+                  ),
                 );
               },
-              childCount: records.length,
+              childCount:
+                  records.length + (records.isNotEmpty && !locked ? 1 : 0),
               findChildIndexCallback: (key) =>
                   key is ValueKey<int> && indices.containsKey(key.value)
                   ? indices[key.value]
@@ -188,6 +219,60 @@ class _MobileNotificationHistoryState
     _entrance.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+}
+
+/// Separate notification rows reveal with alpha, scale, and negative vertical
+/// spacing. This mirrors ColorOS' NotificationPanelSeparateAnimation instead
+/// of treating the notification center as a horizontally sliding drawer.
+class _ColorOsNotificationReveal extends StatelessWidget {
+  const _ColorOsNotificationReveal({
+    required this.entrance,
+    required this.index,
+    required this.child,
+  });
+
+  final Animation<double> entrance;
+  final int index;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: entrance,
+      child: child,
+      builder: (context, child) {
+        final staggerIndex = index.clamp(
+          0,
+          Motion.notificationHistoryMaxStagger,
+        );
+        final duration = Motion.notificationHistorySlide.inMilliseconds;
+        final stagger = Motion.notificationHistoryStagger.inMilliseconds;
+        final total = duration + stagger * Motion.notificationHistoryMaxStagger;
+        final phase =
+            ((entrance.value * total - staggerIndex * stagger) / duration)
+                .clamp(0.0, 1.0)
+                .toDouble();
+        final value = Curves.easeOutCubic.transform(phase);
+        final initialScale = (0.85 - staggerIndex * 0.1)
+            .clamp(0.0, 1.0)
+            .toDouble();
+        final baseSpacing = -30.0 * staggerIndex;
+        final initialSpacing =
+            baseSpacing - (1 - initialScale) * baseSpacing.abs();
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, initialSpacing * (1 - value)),
+            child: Transform.scale(
+              scale: initialScale + (1 - initialScale) * value,
+              alignment: Alignment.topCenter,
+              child: child,
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -213,12 +298,13 @@ class _HistoryNotification extends StatelessWidget {
   Widget build(BuildContext context) {
     final notification = record.notification;
     final padding = MediaQuery.viewPaddingOf(context);
+    final metrics = MobileUiMetrics.of(context);
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        padding.left + MobileNotificationCard.horizontalMargin,
+        padding.left + metrics.visual(MobileNotificationCard.horizontalMargin),
         0,
-        padding.right + MobileNotificationCard.horizontalMargin,
-        10,
+        padding.right + metrics.visual(MobileNotificationCard.horizontalMargin),
+        metrics.visual(MobileNotificationMetrics.rowSpacing),
       ),
       child: Dismissible(
         key: ValueKey(notification.id),
@@ -247,7 +333,7 @@ class _HistoryNotification extends StatelessWidget {
             onAction: record.active ? onAction : null,
             surfaceBuilder: (context, card) {
               final radius = BorderRadius.circular(
-                ShellTheme.of(context).panelRadius,
+                metrics.visual(ShellTheme.of(context).panelRadius),
               );
               return NotificationShadeSurface(
                 borderRadius: radius,
@@ -266,48 +352,47 @@ class _HistoryButton extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.onPressed,
-    this.content,
   });
 
-  final Widget? content;
   final String label;
   final IconData icon;
   final VoidCallback onPressed;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    label: label,
-    child: FocusableActionDetector(
-      mouseCursor: SystemMouseCursors.click,
-      shortcuts: const {
-        SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-        SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-      },
-      actions: {
-        ActivateIntent: CallbackAction<ActivateIntent>(
-          onInvoke: (_) {
-            onPressed();
-            return null;
-          },
-        ),
-      },
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onPressed,
-        child:
-            content ??
-            SizedBox.square(
-              dimension: 48,
-              child: Icon(
-                icon,
-                color: context.shellColors.textSecondary,
-                size: 22,
-              ),
+  Widget build(BuildContext context) {
+    final metrics = MobileUiMetrics.of(context);
+    return Semantics(
+      button: true,
+      label: label,
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        shortcuts: const {
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        },
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              onPressed();
+              return null;
+            },
+          ),
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onPressed,
+          child: SizedBox.square(
+            dimension: metrics.visual(MobileNotificationMetrics.detailsExtent),
+            child: Icon(
+              icon,
+              color: context.shellColors.textSecondary,
+              size: metrics.visual(MobileNotificationMetrics.detailsIcon),
             ),
+          ),
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class ClearNotificationHistoryButton extends ConsumerWidget {
@@ -325,29 +410,6 @@ class ClearNotificationHistoryButton extends ConsumerWidget {
       label: context.l10n.notificationsClearAll,
       icon: Icons.clear_all_rounded,
       onPressed: ref.read(desktopNotificationsProvider.notifier).clearAll,
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 48),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  context.l10n.notificationsClearAll,
-                  style: ShellText.base.copyWith(fontSize: 16),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Icon(
-                Icons.clear_all_rounded,
-                size: 24,
-                color: context.shellColors.textSecondary,
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

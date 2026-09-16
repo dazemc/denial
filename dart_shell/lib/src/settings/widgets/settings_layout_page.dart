@@ -15,6 +15,7 @@ class SettingsLayoutPage extends StatelessWidget {
     required this.onWindowLayoutChanged,
     required this.onWorkspacesEnabledChanged,
     required this.onWorkspaceCountChanged,
+    required this.onWorkspaceSwitchingOrientationChanged,
     required this.onSystemBarChanged,
     required this.onSystemBarThicknessChanged,
     required this.onMaximizePaddingChanged,
@@ -30,6 +31,8 @@ class SettingsLayoutPage extends StatelessWidget {
   final ValueChanged<DesktopWindowLayout> onWindowLayoutChanged;
   final ValueChanged<bool> onWorkspacesEnabledChanged;
   final ValueChanged<double> onWorkspaceCountChanged;
+  final ValueChanged<WorkspaceSwitchingOrientation>
+  onWorkspaceSwitchingOrientationChanged;
   final SystemBarPlacementChanged onSystemBarChanged;
   final ValueChanged<double> onSystemBarThicknessChanged;
   final ValueChanged<double> onMaximizePaddingChanged;
@@ -65,6 +68,10 @@ class SettingsLayoutPage extends StatelessWidget {
                       SettingsChoice(
                         DesktopWindowLayout.dwindle,
                         l10n.settingsWindowLayoutDwindle,
+                      ),
+                      SettingsChoice(
+                        DesktopWindowLayout.scrolling,
+                        l10n.settingsWindowLayoutScrolling,
                       ),
                     ],
                     onChanged: onWindowLayoutChanged,
@@ -105,6 +112,28 @@ class SettingsLayoutPage extends StatelessWidget {
                     divisions: maximumWorkspaceCount - minimumWorkspaceCount,
                     valueLabel: settings.workspaceCount.toString(),
                     onChanged: onWorkspaceCountChanged,
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    l10n.settingsWorkspaceSwitchingOrientation,
+                    style: ShellText.cardTitle.copyWith(
+                      color: ShellTheme.colorsOf(context).textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SettingsSegmentedControl<WorkspaceSwitchingOrientation>(
+                    value: settings.workspaceSwitchingOrientation,
+                    choices: [
+                      SettingsChoice(
+                        WorkspaceSwitchingOrientation.horizontal,
+                        l10n.settingsWorkspaceSwitchingHorizontal,
+                      ),
+                      SettingsChoice(
+                        WorkspaceSwitchingOrientation.vertical,
+                        l10n.settingsWorkspaceSwitchingVertical,
+                      ),
+                    ],
+                    onChanged: onWorkspaceSwitchingOrientationChanged,
                   ),
                 ],
               ),

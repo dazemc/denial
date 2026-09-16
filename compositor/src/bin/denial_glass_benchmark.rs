@@ -720,6 +720,22 @@ fn digest(path: &Path) -> Result<String, Box<dyn Error>> {
     Ok(format!("{:x}", Sha256::digest(fs::read(path)?)))
 }
 
+fn install_legacy_denial_environment_aliases() {
+    let aliases = std::env::vars_os()
+        .filter_map(|(name, value)| {
+            let suffix = name.to_str()?.strip_prefix("DENIAL_")?;
+            Some((format!("DENIA_{suffix}"), value))
+        })
+        .collect::<Vec<_>>();
+    // SAFETY: the benchmark calls this before it starts the watchdog or loads
+    // Flutter. Canonical values win for the pinned engine's legacy readers.
+    unsafe {
+        for (legacy, value) in aliases {
+            std::env::set_var(legacy, value);
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if args.len() < 5
@@ -915,20 +931,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     unsafe {
         std::env::set_var("DENIAL_OFFSCREEN_BENCHMARK_SETTINGS", &settings);
         std::env::set_var(
-            "DENIA_GLES_IMPLICIT_MSAA",
+            "DENIAL_GLES_IMPLICIT_MSAA",
             if implicit_msaa { "1" } else { "0" },
         );
         std::env::set_var("DENIAL_OFFSCREEN_BENCHMARK_OUTPUT", &output);
         std::env::set_var(
-            "DENIA_GLASS_POOLED_MATERIAL_PADDING",
+            "DENIAL_GLASS_POOLED_MATERIAL_PADDING",
             if pooled_glass_material { "1" } else { "0" },
         );
         std::env::set_var(
-            "DENIA_GLASS_RETAIN_TARGETS",
+            "DENIAL_GLASS_RETAIN_TARGETS",
             if retain_glass_targets { "1" } else { "0" },
         );
         std::env::set_var(
-            "DENIA_GLASS_RETAIN_TARGETS_BY_BUDGET",
+            "DENIAL_GLASS_RETAIN_TARGETS_BY_BUDGET",
             if retain_glass_by_budget { "1" } else { "0" },
         );
         if let Some(phase) = start_phase_us {
@@ -940,31 +956,35 @@ fn main() -> Result<(), Box<dyn Error>> {
             std::env::remove_var("DENIAL_OFFSCREEN_BENCHMARK_START_PHASE_US");
         }
         std::env::set_var(
-            "DENIA_GL_RESOURCE_AUDIT",
+            "DENIAL_GL_RESOURCE_AUDIT",
             if resource_audit { "1" } else { "0" },
         );
         if driver_single_thread {
             std::env::set_var("GALLIUM_THREAD", "0");
         }
         std::env::set_var(
-            "DENIA_GLASS_POOLED_TARGET_PADDING",
+            "DENIAL_GLASS_POOLED_TARGET_PADDING",
             if pooled_glass_targets { "1" } else { "0" },
         );
         std::env::set_var(
             "DENIAL_OFFSCREEN_BENCHMARK_TIMELINE",
             if timeline { "1" } else { "0" },
         );
-        std::env::set_var("DENIA_RENDER_AUDIT", if stage_audit { "1" } else { "0" });
-        std::env::set_var("DENIA_GPU_STAGE_AUDIT", if stage_audit { "1" } else { "0" });
+        std::env::set_var("DENIAL_RENDER_AUDIT", if stage_audit { "1" } else { "0" });
         std::env::set_var(
-            "DENIA_GLASS_DIRECT_MATERIAL",
+            "DENIAL_GPU_STAGE_AUDIT",
+            if stage_audit { "1" } else { "0" },
+        );
+        std::env::set_var(
+            "DENIAL_GLASS_DIRECT_MATERIAL",
             if direct_glass { "1" } else { "0" },
         );
         std::env::set_var(
-            "DENIA_GLASS_INWARD_BOUNDS",
+            "DENIAL_GLASS_INWARD_BOUNDS",
             if inward_glass_bounds { "1" } else { "0" },
         );
     }
+    install_legacy_denial_environment_aliases();
     let done = Arc::new(AtomicBool::new(false));
     let watchdog_done = done.clone();
     thread::spawn(move || {

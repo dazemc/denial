@@ -1,5 +1,6 @@
 import 'package:denial_dart_shell/src/desktop/desktop_shell.dart';
 import 'package:denial_dart_shell/src/desktop/desktop_workspace.dart';
+import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/widgets/desktop_window_reveal.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,6 +20,36 @@ void main() {
     serial: 1,
   );
 
+  test('desktop navigation never becomes a window entrance', () {
+    expect(
+      desktopWindowSuppressesInitialReveal(
+        overview: true,
+        switching: false,
+        minimized: false,
+        hasWorkspaceTransition: false,
+      ),
+      isTrue,
+    );
+    expect(
+      desktopWindowSuppressesInitialReveal(
+        overview: false,
+        switching: true,
+        minimized: false,
+        hasWorkspaceTransition: false,
+      ),
+      isTrue,
+    );
+    expect(
+      desktopWindowSuppressesInitialReveal(
+        overview: false,
+        switching: false,
+        minimized: false,
+        hasWorkspaceTransition: false,
+      ),
+      isFalse,
+    );
+  });
+
   testWidgets('workspace motion does not remount its window subtree', (
     tester,
   ) async {
@@ -33,6 +64,7 @@ void main() {
           child: DesktopWorkspaceWindowTransition(
             placement: placement,
             transition: activeTransition,
+            orientation: WorkspaceSwitchingOrientation.horizontal,
             outputRect: const Rect.fromLTWH(0, 0, 1920, 1080),
             duration: Duration.zero,
             child: _MountProbe(onMount: () => mounts++),
@@ -70,6 +102,54 @@ void main() {
 
     expect(tester.widget<ClipPath>(find.byType(ClipPath)).clipper, isNull);
   });
+
+  for (final navigationMode in <String>['overview', 'switcher']) {
+    testWidgets('$navigationMode exit remount never replays window entrance', (
+      tester,
+    ) async {
+      final registry = DesktopWindowRevealMountRegistry();
+
+      Widget build({required bool mounted, required bool navigating}) {
+        return Directionality(
+          textDirection: TextDirection.ltr,
+          child: mounted
+              ? TrackedDesktopWindowReveal(
+                  key: const ValueKey<String>('window-1'),
+                  registry: registry,
+                  objectId: 1,
+                  suppressInitialAnimation: navigationMode == 'overview'
+                      ? desktopWindowSuppressesInitialReveal(
+                          overview: navigating,
+                          switching: false,
+                          minimized: false,
+                          hasWorkspaceTransition: false,
+                        )
+                      : desktopWindowSuppressesInitialReveal(
+                          overview: false,
+                          switching: navigating,
+                          minimized: false,
+                          hasWorkspaceTransition: false,
+                        ),
+                  child: const SizedBox(width: 320, height: 240),
+                )
+              : const SizedBox.shrink(),
+        );
+      }
+
+      await tester.pumpWidget(build(mounted: true, navigating: false));
+      expect(tester.widget<ClipPath>(find.byType(ClipPath)).clipper, isNotNull);
+
+      await tester.pumpWidget(build(mounted: false, navigating: true));
+      await tester.pumpWidget(build(mounted: true, navigating: true));
+      expect(tester.widget<ClipPath>(find.byType(ClipPath)).clipper, isNull);
+
+      await tester.pumpWidget(build(mounted: false, navigating: false));
+      await tester.pumpWidget(build(mounted: true, navigating: false));
+      await tester.pump();
+
+      expect(tester.widget<ClipPath>(find.byType(ClipPath)).clipper, isNull);
+    });
+  }
 }
 
 class _MountProbe extends StatefulWidget {

@@ -15,6 +15,10 @@ String settingsShortcutDisplay(BuildContext context, String shortcut) {
       context.l10n.settingsShortcutGestureFourFingerSwipeLeft,
     'FourFingerSwipeRight' =>
       context.l10n.settingsShortcutGestureFourFingerSwipeRight,
+    'FourFingerSwipeUp' =>
+      context.l10n.settingsShortcutGestureFourFingerSwipeUp,
+    'FourFingerSwipeDown' =>
+      context.l10n.settingsShortcutGestureFourFingerSwipeDown,
     _ => null,
   };
   if (gesture != null) return gesture.toUpperCase();
@@ -65,6 +69,8 @@ String settingsShortcutActionLabel(
       l10n.settingsShortcutActionToggleMaximize,
     DenialShortcutAction.toggleFullscreen =>
       l10n.settingsShortcutActionToggleFullscreen,
+    DenialShortcutAction.toggleWindowAlwaysOnTop =>
+      l10n.settingsShortcutActionToggleWindowAlwaysOnTop,
     DenialShortcutAction.releasePointer =>
       l10n.settingsShortcutActionReleasePointer,
     DenialShortcutAction.lockScreen => l10n.settingsShortcutActionLockScreen,
@@ -157,6 +163,7 @@ IconData settingsShortcutActionIcon(DenialShortcutAction action) {
       Icons.keyboard_double_arrow_down_rounded,
     DenialShortcutAction.toggleMaximize => Icons.crop_square_rounded,
     DenialShortcutAction.toggleFullscreen => Icons.fullscreen_rounded,
+    DenialShortcutAction.toggleWindowAlwaysOnTop => Icons.push_pin_outlined,
     DenialShortcutAction.releasePointer => Icons.mouse_outlined,
     DenialShortcutAction.lockScreen => Icons.lock_outline_rounded,
     DenialShortcutAction.volumeUp => Icons.volume_up_rounded,

@@ -8,16 +8,14 @@
 use std::collections::HashMap;
 
 use smithay::desktop::Window;
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size};
-use smithay::wayland::compositor::with_states;
-use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use super::super::RuntimeState;
 use super::super::native_shortcut::ShortcutGesture;
 use super::super::window_grab::constrain_dimension;
 use super::super::wire::{WindowGeometry, WindowPlacementChange, WindowPlacementPhase};
+use super::managed_window::ManagedWindow;
 use super::window_management;
 
 /// The invisible gesture affordance at the bottom of a normal window.
@@ -974,11 +972,10 @@ fn apply_placement(
         window_management::activate_window(state, &window, SERIAL_COUNTER.next_serial());
         if constraints_cleared
             && change == WindowPlacementChange::Move
-            && let Some(toplevel) = window.toplevel()
+            && let Some(managed) = ManagedWindow::new(&window)
         {
             let size = Size::from((rounded_i32(geometry.width), rounded_i32(geometry.height)));
-            toplevel.with_pending_state(|pending| pending.size = Some(size));
-            toplevel.send_pending_configure();
+            managed.prepare_restore_size(size, false);
         }
     }
     let geometry = constrain_client_geometry(&window, geometry, change);
@@ -1044,20 +1041,17 @@ fn constrain_client_geometry(
 ) -> Rectangle<i32, Logical> {
     let requested =
         Size::<i32, Logical>::from((rounded_i32(geometry.width), rounded_i32(geometry.height)));
-    let (minimum, maximum) = if let Some(toplevel) = window.toplevel() {
-        with_states(toplevel.wl_surface(), |states| {
-            let mut cached = states.cached_state.get::<SurfaceCachedState>();
-            let current = cached.current();
-            (current.min_size, current.max_size)
-        })
-    } else if let Some(x11) = window.x11_surface() {
-        (
-            x11.min_size().unwrap_or_else(|| Size::from((1, 1))),
-            x11.max_size().unwrap_or_else(|| Size::from((0, 0))),
-        )
-    } else {
-        (Size::from((1, 1)), Size::from((0, 0)))
-    };
+    let (minimum, maximum): (Size<i32, Logical>, Size<i32, Logical>) = ManagedWindow::new(window)
+        .map_or_else(
+            || (Size::from((1, 1)), Size::from((0, 0))),
+            |managed| {
+                let facts = managed.facts();
+                (
+                    Size::from((facts.minimum_size.w.max(1), facts.minimum_size.h.max(1))),
+                    facts.maximum_size,
+                )
+            },
+        );
     let size = Size::from((
         constrain_dimension(requested.w, minimum.w, maximum.w),
         constrain_dimension(requested.h, minimum.h, maximum.h),
@@ -1074,18 +1068,9 @@ fn constrain_client_geometry(
 }
 
 fn configure_client_resize(window: &Window, size: Size<i32, Logical>, phase: WindowPlacementPhase) {
-    let Some(toplevel) = window.toplevel() else {
-        return;
-    };
-    toplevel.with_pending_state(|pending| {
-        if phase == WindowPlacementPhase::End {
-            pending.states.unset(xdg_toplevel::State::Resizing);
-        } else {
-            pending.states.set(xdg_toplevel::State::Resizing);
-        }
-        pending.size = Some(size);
-    });
-    toplevel.send_pending_configure();
+    if let Some(managed) = ManagedWindow::new(window) {
+        managed.prepare_interactive_resize(size, phase == WindowPlacementPhase::End);
+    }
 }
 
 fn centered_geometry(geometry: WindowGeometry, width: f64, height: f64) -> WindowGeometry {

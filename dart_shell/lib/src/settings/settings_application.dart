@@ -1,3 +1,5 @@
+import 'fingerprint/fingerprint_service.dart';
+import 'widgets/settings_fingerprint_page.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -132,12 +134,16 @@ class _DenialSettingsApplicationState
     if (_page == page) {
       return;
     }
+    if (_page == SettingsPageId.fingerprint) {
+      ref.read(fingerprintSessionProvider).close();
+    }
     setState(() => _page = page);
   }
 
   @override
   Widget build(BuildContext context) {
     _scheduleRequestedPage(ref.watch(settingsPageOpenRequestProvider));
+    final showFingerprint = ref.watch(fingerprintDeviceProvider).value ?? false;
     return Semantics(
       container: true,
       role: .main,
@@ -159,6 +165,7 @@ class _DenialSettingsApplicationState
                     selected: _page,
                     compact: true,
                     showTouchpad: true,
+                    showFingerprint: showFingerprint,
                     onSelected: _selectPage,
                   ),
                   Divider(height: 1, color: context.shellColors.hairlineSoft),
@@ -172,6 +179,7 @@ class _DenialSettingsApplicationState
                           selected: _page,
                           compact: false,
                           showTouchpad: true,
+                          showFingerprint: showFingerprint,
                           onSelected: _selectPage,
                         ),
                       Expanded(
@@ -301,6 +309,11 @@ class _SettingsPageBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(shellSettingsProvider.notifier);
     switch (page) {
+      case SettingsPageId.fingerprint:
+        if (!(ref.watch(fingerprintDeviceProvider).value ?? false)) {
+          return const SizedBox.shrink();
+        }
+        return const SettingsFingerprintPage();
       case SettingsPageId.appearance:
         final settings = ref.watch(
           shellSettingsProvider.select((settings) => settings.appearance),
@@ -420,6 +433,8 @@ class _SettingsPageBody extends ConsumerWidget {
           onWindowLayoutChanged: controller.setDesktopWindowLayout,
           onWorkspacesEnabledChanged: controller.setWorkspacesEnabled,
           onWorkspaceCountChanged: controller.setWorkspaceCount,
+          onWorkspaceSwitchingOrientationChanged:
+              controller.setWorkspaceSwitchingOrientation,
           onSystemBarChanged: (side, monitorIds) {
             final outputNames = <String>[
               for (final output

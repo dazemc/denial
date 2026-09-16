@@ -321,6 +321,18 @@ pub(super) struct InputMethodManager {
     flutter_transactions: VecDeque<(u64, i64, InputMethodTransaction)>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EditorPublication {
+    Update,
+    Activation,
+}
+
+impl EditorPublication {
+    fn sends_activate(self, already_active: bool) -> bool {
+        !already_active || self == Self::Activation
+    }
+}
+
 impl InputMethodManager {
     pub(super) fn new(display: &DisplayHandle) -> Self {
         Self {
@@ -343,7 +355,7 @@ impl InputMethodManager {
             return false;
         }
         self.blocked = blocked;
-        self.publish_editor_state()
+        self.publish_editor_state(EditorPublication::Update)
     }
 
     pub(super) fn synchronize(&mut self, editor: Option<EditorSnapshot>) -> bool {
@@ -351,10 +363,17 @@ impl InputMethodManager {
             return false;
         }
         self.editor = editor;
-        self.publish_editor_state()
+        self.publish_editor_state(EditorPublication::Update)
     }
 
-    fn publish_editor_state(&mut self) -> bool {
+    /// Publish a committed text-input enable, including when the selected
+    /// editor resource was already active.
+    pub(super) fn synchronize_activation(&mut self, editor: Option<EditorSnapshot>) -> bool {
+        self.editor = editor;
+        self.publish_editor_state(EditorPublication::Activation)
+    }
+
+    fn publish_editor_state(&mut self, publication: EditorPublication) -> bool {
         let effective = self
             .editor
             .as_ref()
@@ -385,9 +404,12 @@ impl InputMethodManager {
             instance.pending = InputMethodTransaction::default();
         }
         if let Some(editor) = effective {
-            if !instance.active {
+            if publication.sends_activate(instance.active) {
                 instance.resource.activate();
                 instance.active = true;
+                // input-method-v2 defines `activate` as a reset boundary for
+                // requests staged against the preceding editor state.
+                instance.pending = InputMethodTransaction::default();
             }
             // `same_editor` deliberately ignores mutable routing metadata such
             // as a Wayland text-input commit serial. Keep the identity stable,
@@ -445,7 +467,7 @@ impl InputMethodManager {
             active_endpoint: None,
             pending: InputMethodTransaction::default(),
         });
-        self.publish_editor_state();
+        self.publish_editor_state(EditorPublication::Update);
         info!("Wayland input method connected");
     }
 
@@ -1325,5 +1347,18 @@ impl Dispatch<ZwpInputMethodKeyboardGrabV2, InputMethodKeyboardUserData> for Run
         {
             keyboard.unset_grab(state);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EditorPublication;
+
+    #[test]
+    fn committed_enable_reactivates_an_existing_input_method() {
+        assert!(EditorPublication::Activation.sends_activate(true));
+        assert!(EditorPublication::Activation.sends_activate(false));
+        assert!(!EditorPublication::Update.sends_activate(true));
+        assert!(EditorPublication::Update.sends_activate(false));
     }
 }

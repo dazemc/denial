@@ -1,9 +1,11 @@
 # Screenshots and screen sharing
 
-Denial advertises `zwlr-screencopy-unstable-v1` version 3 for physical outputs
-and output regions. Capture buffers can use `wl_shm` for broad screenshot-tool
-compatibility or XRGB8888 DMA-BUFs for GPU-side copies. Requests complete on a
-real presentation edge of the selected output, so continuous capture follows
+Denial advertises `ext-output-image-capture-source-v1` together with
+`ext-image-copy-capture-v1` for physical-output capture. It also retains
+`zwlr-screencopy-unstable-v1` version 3 for older direct clients and explicit
+output-region capture. Both paths support `wl_shm` and XRGB8888 DMA-BUFs, and
+both share the same presentation-paced transfer pipeline: requests complete on
+a real presentation edge of the selected output, so continuous capture follows
 that output's refresh cadence instead of spinning the Wayland event loop.
 
 ## Direct capture
@@ -30,9 +32,11 @@ tools/denial-pc install-session
 
 The first-party packages install the equivalent configuration. It routes the
 ScreenCast and Screenshot portal interfaces to the `wlr` backend while leaving
-general desktop portals with GTK. The backend turns Denial's screencopy frames
-into PipeWire streams; PipeWire is intentionally not linked into the
-compositor process itself.
+general desktop portals with GTK. Current `xdg-desktop-portal-wlr` versions
+prefer Denial's `ext-image-copy-capture-v1` path and retain the legacy protocol
+as a compatibility fallback. The backend turns captured frames into PipeWire
+streams; PipeWire is intentionally not linked into the compositor process
+itself.
 
 At its first ready frame, Denial activates the packaged
 `denial-session.target`, which binds the standard systemd

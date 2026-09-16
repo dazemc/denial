@@ -1,17 +1,29 @@
+import 'package:denial_dart_shell/src/services/mobile_network_service.dart';
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
 import 'package:denial_dart_shell/src/state/network_connectivity.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/state/system_status.dart';
 import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:denial_dart_shell/src/widgets/shade/system_shade_layer.dart';
-import 'package:denial_dart_shell/src/widgets/shade/mobile_notification_history.dart';
-import 'package:denial_dart_shell/src/widgets/shell_backdrop_blur.dart';
 import 'package:denial_dart_shell/src/widgets/shade/quick_settings_panel.dart';
+import 'package:denial_dart_shell/src/widgets/shade/shade_reference_geometry.dart';
+import 'package:denial_dart_shell/src/widgets/shade/status_bar.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('ColorOS shade geometry follows the physical short-side scale', () {
+    expect(
+      colorOsShadeScaleForViewport(const Size(610, 1356)),
+      closeTo(1.5, 0.000001),
+    );
+    expect(
+      colorOsShadeScaleForViewport(const Size(1220 / 3, 904)),
+      closeTo(1, 0.000001),
+    );
+  });
+
   testWidgets('closing a short or interrupted shade drag releases home input', (
     tester,
   ) async {
@@ -21,6 +33,9 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          mobileNetworkProvider.overrideWith(
+            (_) => Stream.value(const MobileNetworkSnapshot()),
+          ),
           clockProvider.overrideWith((_) => Stream.value(DateTime(2026, 9, 5))),
           networkConnectivityProvider.overrideWithBuild(
             (_, _) => NetworkConnectivityState.initial(),
@@ -93,23 +108,29 @@ void main() {
     await tester.pump(const Duration(milliseconds: 8));
     shell.openQuickSettings();
     await tester.pumpAndSettle(const Duration(milliseconds: 8));
-    // Notifications float below the original 580px panel, with an independent
-    // scroll view and no enclosing controls-panel backdrop.
-    final history = find.byType(MobileNotificationHistory);
-    expect(tester.getTopLeft(history).dy, closeTo(588, 0.01));
-    expect(
-      find.ancestor(of: history, matching: find.byType(ShellBackdropBlur)),
-      findsNothing,
+    final statusBar = tester.widget<ShadeStatusBar>(
+      find.byType(ShadeStatusBar),
     );
+    statusBar.onDragStart!(const Offset(20, 0));
+    await tester.pump();
     expect(
-      find.descendant(
-        of: find.byType(QuickSettingsShade),
-        matching: find.byType(Scrollable),
-      ),
-      findsNWidgets(2),
+      tester.widget<QuickSettingsShade>(find.byType(QuickSettingsShade)).page,
+      ShadePage.notifications,
+    );
+    statusBar.onDragStart!(const Offset(380, 0));
+    await tester.pump();
+    expect(
+      tester.widget<QuickSettingsShade>(find.byType(QuickSettingsShade)).page,
+      ShadePage.quickSettings,
+    );
+    await tester.dragFrom(const Offset(200, 700), const Offset(120, 0));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<QuickSettingsShade>(find.byType(QuickSettingsShade)).page,
+      ShadePage.notifications,
     );
     // Reopening cancels the previous close, so the shade still owns this tap.
-    await tester.tapAt(const Offset(200, 790));
+    await tester.tapAt(const Offset(200, 600));
     expect(taps, 0);
     expect(
       container.read(shellControllerProvider).quickSettingsVisible,

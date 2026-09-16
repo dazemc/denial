@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
-    'panel compression preserves card layout and horizontal entrance',
+    'panel compression preserves card layout and exits beyond the viewport',
     (tester) async {
       final progress = AnimationController(vsync: tester, value: 1);
       final entrance = AnimationController(vsync: tester, value: 1);
@@ -18,22 +18,17 @@ void main() {
       final originalSize = tester.getSize(first);
       final gap = tester.getTopLeft(second).dy - tester.getTopLeft(first).dy;
 
-      entrance.value = 0.2;
-      await tester.pump();
-      final firstX = tester.getTopLeft(first).dx;
-      expect(firstX, lessThan(0));
-      expect(tester.getTopLeft(second).dx, lessThan(firstX));
       progress.value = 0.5;
       await tester.pump();
-      expect(tester.getTopLeft(first).dx, firstX);
       expect(
         tester.getTopLeft(second).dy - tester.getTopLeft(first).dy,
         gap * 0.5,
       );
       expect(tester.getSize(first), originalSize);
+      final firstX = tester.getTopLeft(first).dx;
       entrance.value = 0.5;
       await tester.pump();
-      expect(tester.getTopLeft(first).dx, greaterThan(firstX));
+      expect(tester.getTopLeft(first).dx, firstX);
       expect(
         tester.getTopLeft(second).dy - tester.getTopLeft(first).dy,
         gap * 0.5,
@@ -41,9 +36,9 @@ void main() {
 
       entrance.value = 1;
       await tester.pump();
-      // This point lies below the former viewport-height × progress clip.
-      // Full-sized overlapping cards must still receive input there.
-      await tester.tapAt(const Offset(50, 200));
+      // Full-sized compressed cards must keep input aligned to their painted
+      // position rather than their uncompressed sliver layout position.
+      await tester.tapAt(tester.getCenter(third));
       expect(taps, 1);
       progress.value = 1;
       await tester.pump();
@@ -51,7 +46,11 @@ void main() {
       expect(taps, 2, reason: 'Hit testing must follow the painted card');
       progress.value = 0.001;
       await tester.pump();
-      expect(tester.getBottomLeft(first).dy, lessThan(1));
+      expect(
+        tester.getBottomLeft(first).dy,
+        lessThan(0),
+        reason: 'Rows must clear the viewport before the shade disappears',
+      );
       expect(tester.getSize(first), originalSize);
       progress.value = 0;
       await tester.pump();

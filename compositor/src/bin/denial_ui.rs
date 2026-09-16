@@ -792,6 +792,11 @@ fn flutter_process(paths: &DevelopmentPaths, arguments: &[OsString]) -> Process 
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
+    for (name, value) in env::vars_os() {
+        if let Some(suffix) = name.to_str().and_then(|name| name.strip_prefix("DENIAL_")) {
+            process.env(format!("DENIA_{suffix}"), value);
+        }
+    }
     process
 }
 

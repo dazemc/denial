@@ -5,8 +5,8 @@ use std::ffi::OsStr;
 use denial_core::topology::OutputTransform;
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Device, DeviceCapability, Event,
-    GestureBeginEvent, GestureSwipeUpdateEvent, InputEvent, KeyState, KeyboardKeyEvent,
-    PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent,
+    GestureBeginEvent, GestureEndEvent, GestureSwipeUpdateEvent, InputEvent, KeyState,
+    KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent,
 };
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
 use smithay::backend::session::libseat::LibSeatSession;
@@ -40,17 +40,19 @@ use tracing::{info, warn};
 #[cfg(feature = "flutter")]
 use super::super::PendingWindowEvent;
 use super::super::lifecycle::ShutdownReason;
-use super::super::native_shortcut::{ShortcutDisposition, ShortcutTarget};
+use super::super::native_shortcut::{
+    ShortcutAction, ShortcutDisposition, ShortcutGesture, ShortcutTarget,
+};
 #[cfg(feature = "flutter")]
 use super::super::settings::KeyboardSettings;
 use super::super::settings::{MouseSettings, TouchpadSettings};
 #[cfg(feature = "flutter")]
 use super::super::window_grab::{
     LocalFlutterWindowGrab, MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, TileResizeGrab,
-    TileSwapGrab, X11ResizeSurfaceGrab,
+    TileSwapGrab,
 };
 #[cfg(feature = "flutter")]
-use super::super::window_layout::LayoutResizeEdges;
+use super::super::window_layout::{LayoutDirection, LayoutResizeEdges};
 #[cfg(feature = "flutter")]
 use super::super::wire::{
     InputLayoutSnapshot, InputWindowRegion, WindowPlacementChange, WindowPlacementPhase,
@@ -921,6 +923,8 @@ pub(in super::super) fn init_libinput(
 ) -> Result<(), Box<dyn Error>> {
     #[cfg(feature = "flutter")]
     init_joystick_activity(event_loop, session.clone())?;
+    #[cfg(feature = "flutter")]
+    super::wake_gesture::init(event_loop, session.clone())?;
     let mut context =
         Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.into());
     context
@@ -1109,7 +1113,9 @@ fn process_touchpad_gesture_event(
                 | InputEvent::GestureSwipeUpdate { .. }
                 | InputEvent::GestureSwipeEnd { .. }
         ) {
-            state.touchpad_gestures.reset();
+            if state.touchpad_gestures.reset() {
+                finish_horizontal_layout_scroll(state, true, None);
+            }
             state.native_escape_shortcut.cancel_gestures();
             return Some(false);
         }
@@ -1119,26 +1125,77 @@ fn process_touchpad_gesture_event(
     let gesture_event = match event {
         InputEvent::GestureSwipeBegin { event } => {
             let device = event.device();
-            state
-                .touchpad_gestures
-                .begin_swipe(device.sysname(), event.fingers());
+            let scrolling_layout = state
+                .wayland
+                .as_ref()
+                .is_some_and(WaylandFrontend::can_scroll_layout_horizontally);
+            let horizontal_scroll_directions = if scrolling_layout {
+                super::super::touchpad_gestures::HorizontalScrollDirections {
+                    left: state.native_escape_shortcut.gesture_invokes(
+                        ShortcutGesture::ThreeFingerSwipeLeft,
+                        ShortcutAction::WindowSwitcher,
+                    ),
+                    right: state.native_escape_shortcut.gesture_invokes(
+                        ShortcutGesture::ThreeFingerSwipeRight,
+                        ShortcutAction::WindowSwitcher,
+                    ),
+                }
+            } else {
+                super::super::touchpad_gestures::HorizontalScrollDirections::default()
+            };
+            state.touchpad_gestures.begin_swipe(
+                device.sysname(),
+                event.fingers(),
+                horizontal_scroll_directions,
+            );
             None
         }
         InputEvent::GestureSwipeUpdate { event } => {
             let device = event.device();
-            state
-                .touchpad_gestures
-                .update_swipe(device.sysname(), event.delta_x(), event.delta_y())
+            state.touchpad_gestures.update_swipe(
+                device.sysname(),
+                event.delta_x(),
+                event.delta_y(),
+                event.time(),
+            )
         }
         InputEvent::GestureSwipeEnd { event } => {
             let device = event.device();
-            state.touchpad_gestures.end_swipe(device.sysname())
+            state
+                .touchpad_gestures
+                .end_swipe(device.sysname(), event.cancelled(), event.time())
         }
         _ => return None,
     };
 
     if let Some(gesture_event) = gesture_event {
         use super::super::touchpad_gestures::TouchpadGestureEvent;
+
+        match gesture_event {
+            TouchpadGestureEvent::HorizontalScrollBegin { delta_x } => {
+                let handled = update_horizontal_layout_scroll(state, delta_x);
+                if handled {
+                    info!("began continuous scrolling-layout touchpad gesture");
+                }
+                return Some(handled);
+            }
+            TouchpadGestureEvent::HorizontalScrollUpdate { delta_x } => {
+                return Some(update_horizontal_layout_scroll(state, delta_x));
+            }
+            TouchpadGestureEvent::HorizontalScrollEnd {
+                cancelled,
+                projected_delta_x,
+            } => {
+                return Some(finish_horizontal_layout_scroll(
+                    state,
+                    cancelled,
+                    Some(projected_delta_x),
+                ));
+            }
+            TouchpadGestureEvent::Trigger(_)
+            | TouchpadGestureEvent::Repeat(_)
+            | TouchpadGestureEvent::End(_) => {}
+        }
 
         let (gesture, disposition) = match gesture_event {
             TouchpadGestureEvent::Trigger(gesture) => (
@@ -1152,6 +1209,11 @@ fn process_touchpad_gesture_event(
             TouchpadGestureEvent::End(gesture) => {
                 (gesture, state.native_escape_shortcut.end_gesture(gesture))
             }
+            TouchpadGestureEvent::HorizontalScrollBegin { .. }
+            | TouchpadGestureEvent::HorizontalScrollUpdate { .. }
+            | TouchpadGestureEvent::HorizontalScrollEnd { .. } => {
+                unreachable!("continuous scroll events return before shortcut dispatch")
+            }
         };
         let handled = execute_shortcut_disposition(state, disposition);
         if handled {
@@ -1164,6 +1226,64 @@ fn process_touchpad_gesture_event(
     } else {
         Some(false)
     }
+}
+
+#[cfg(feature = "flutter")]
+fn update_horizontal_layout_scroll(state: &mut RuntimeState, delta_x: f64) -> bool {
+    let Some(frame) = state
+        .wayland
+        .as_mut()
+        .and_then(|frontend| frontend.scroll_layout_horizontally(delta_x))
+    else {
+        return false;
+    };
+    let changed = !frame.placements.is_empty();
+    for (window, geometry) in frame.placements {
+        super::window_management::queue_transient_window_placement_for_monitor(
+            state,
+            &window,
+            geometry,
+            frame.monitor_geometry,
+            WindowPlacementPhase::Update,
+            WindowPlacementChange::Move,
+        );
+    }
+    if changed {
+        state.scene_sync.mark_dirty();
+    }
+    changed
+}
+
+#[cfg(feature = "flutter")]
+fn finish_horizontal_layout_scroll(
+    state: &mut RuntimeState,
+    cancelled: bool,
+    projected_delta_x: Option<f64>,
+) -> bool {
+    let Some(frame) = state.wayland.as_mut().and_then(|frontend| {
+        frontend.finish_layout_horizontal_scroll(cancelled, projected_delta_x)
+    }) else {
+        return false;
+    };
+    let selected = frame.selected.clone();
+    let changed = !frame.placements.is_empty();
+    for (window, geometry) in frame.placements {
+        super::window_management::queue_transient_window_placement_for_monitor(
+            state,
+            &window,
+            geometry,
+            frame.monitor_geometry,
+            WindowPlacementPhase::End,
+            WindowPlacementChange::Move,
+        );
+    }
+    if !cancelled && let Some(selected) = selected {
+        super::window_management::activate_window(state, &selected, SERIAL_COUNTER.next_serial());
+    }
+    if changed {
+        state.scene_sync.mark_dirty();
+    }
+    changed
 }
 
 fn process_input_event(
@@ -1285,6 +1405,20 @@ fn process_input_event(
     }
 
     #[cfg(feature = "flutter")]
+    if state.fingerprint.active()
+        && matches!(
+            &event,
+            InputEvent::TouchDown { .. }
+                | InputEvent::TouchMotion { .. }
+                | InputEvent::TouchUp { .. }
+                | InputEvent::TouchCancel { .. }
+                | InputEvent::TouchFrame { .. }
+        )
+    {
+        return false;
+    }
+
+    #[cfg(feature = "flutter")]
     if !matches!(&event, InputEvent::DeviceAdded { .. }) {
         state.note_user_activity();
     }
@@ -1401,7 +1535,9 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
     }
     #[cfg(feature = "flutter")]
     if reset.pointer {
-        state.touchpad_gestures.reset();
+        if state.touchpad_gestures.reset() {
+            finish_horizontal_layout_scroll(state, true, None);
+        }
         state.native_escape_shortcut.cancel_gestures();
     }
     #[cfg(feature = "flutter")]
@@ -1936,8 +2072,28 @@ pub(super) fn execute_shortcut_disposition(
         }
         ShortcutDisposition::RequestFocus(direction) => {
             #[cfg(feature = "flutter")]
-            super::window_management::focus_toplevel_in_direction(state, direction);
-            true
+            {
+                let shell_owns_scene = state
+                    .wayland
+                    .as_ref()
+                    .and_then(|frontend| frontend.input_layout.as_ref())
+                    .is_some_and(InputLayoutSnapshot::exclusive_shell);
+                if shell_owns_scene {
+                    let action = match direction {
+                        LayoutDirection::Left => super::super::wire::ShellAction::FocusLeft,
+                        LayoutDirection::Right => super::super::wire::ShellAction::FocusRight,
+                        LayoutDirection::Up => super::super::wire::ShellAction::FocusUp,
+                        LayoutDirection::Down => super::super::wire::ShellAction::FocusDown,
+                    };
+                    state.queue_shell_action(action, None);
+                    true
+                } else {
+                    super::window_management::focus_toplevel_in_direction(state, direction);
+                    true
+                }
+            }
+            #[cfg(not(feature = "flutter"))]
+            false
         }
         ShortcutDisposition::RequestSwap(direction) => {
             #[cfg(feature = "flutter")]
@@ -2010,6 +2166,11 @@ pub(super) fn execute_shortcut_disposition(
         ShortcutDisposition::RequestToggleFullscreen => {
             #[cfg(feature = "flutter")]
             super::window_management::toggle_shell_fullscreen_focused_toplevel(state);
+            true
+        }
+        ShortcutDisposition::RequestToggleWindowAlwaysOnTop => {
+            #[cfg(feature = "flutter")]
+            super::window_management::toggle_always_on_top_focused_toplevel(state);
             true
         }
         ShortcutDisposition::RequestReleasePointer => {

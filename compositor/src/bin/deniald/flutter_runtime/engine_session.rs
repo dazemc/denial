@@ -317,6 +317,8 @@ impl FlutterRuntime {
             frame_interval,
             kms_frame_clock_enabled: false,
             outputs_visible: None,
+            lock_frame_gate: lock_frame::LockFrameGate::default(),
+            fingerprint_scene: fingerprint_scene::FingerprintScene::default(),
             published_text_input_state: None,
             frame_ready_observed: false,
             last_pointer_timestamp_micros: 0,
@@ -527,6 +529,7 @@ impl FlutterRuntime {
         if self.authentication.has_pending_events() {
             self.publish_authentication_events()?;
         }
+        self.synchronize_lock_frame()?;
         Ok(())
     }
 

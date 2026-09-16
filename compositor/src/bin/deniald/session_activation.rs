@@ -6,8 +6,11 @@ const DENIAL_SESSION_TARGET: &str = "denial-session.target";
 const GRAPHICAL_SESSION_TARGET: &str = "graphical-session.target";
 const SYSTEMD_DBUS_NAME: &str = "org.freedesktop.systemd1";
 
-pub(super) fn preserves_predecessor_kms_state(runtime_limit: RuntimeLimit) -> bool {
-    runtime_limit != RuntimeLimit::UntilLogout
+pub(super) fn preserves_predecessor_kms_state(
+    runtime_limit: RuntimeLimit,
+    no_predecessor: bool,
+) -> bool {
+    !no_predecessor && runtime_limit != RuntimeLimit::UntilLogout
 }
 
 fn session_activation_environment(
@@ -42,6 +45,14 @@ fn session_activation_environment(
                 .to_str()
                 .ok_or("Denial control socket path is not valid UTF-8")?
                 .to_owned(),
+        );
+    }
+    #[cfg(feature = "flutter")]
+    if let Some(cursor_environment) = crate::xcursor_sentinel::environment() {
+        environment.extend(
+            cursor_environment
+                .into_iter()
+                .map(|(name, value)| (name, value.to_owned())),
         );
     }
     Ok(environment)

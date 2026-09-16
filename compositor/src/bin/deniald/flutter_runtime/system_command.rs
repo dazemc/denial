@@ -17,7 +17,8 @@ use tracing::{debug, info, warn};
 
 use crate::DEFAULT_QT_QPA_PLATFORMTHEME;
 use crate::settings::{
-    ApplicationEnvironment, load_application_environment, validate_desktop_file_id,
+    ApplicationEnvironment, DEFAULT_CURSOR_SIZE, load_application_environment, load_cursor_size,
+    validate_desktop_file_id,
 };
 
 pub const CHANNEL: &CStr = c"denial/system_command";
@@ -68,6 +69,7 @@ const APPLICATION_ENVIRONMENT_REMOVALS: &[&str] = &[
     "LISTEN_PID",
     "SYSTEMD_EXEC_PID",
     "DENIAL_NO_RT",
+    "DENIAL_LAUNCH_REQUEST_ID",
     "DENIA_LAUNCH_REQUEST_ID",
     "DENIAL_SOCKET",
     // This is useful for keeping compositor diagnostics machine-readable, but
@@ -356,6 +358,7 @@ impl SystemCommandHandler {
             .ok_or(DispatchError::WaylandUnavailable)?;
         let executable = launch.arguments[0].clone();
         let application_environment = self.application_environment();
+        let cursor_size = self.cursor_size();
         let pid = launch_application(
             &launch.arguments,
             launch.desktop_file_id.as_deref(),
@@ -364,6 +367,7 @@ impl SystemCommandHandler {
             display,
             self.x11_display.as_deref(),
             self.output_control_socket.as_deref(),
+            cursor_size,
             &application_environment,
         )?;
         info!(pid, executable, "launched application from Flutter shell");
@@ -386,6 +390,7 @@ impl SystemCommandHandler {
         }
         let executable = arguments[0].clone();
         let application_environment = self.application_environment();
+        let cursor_size = self.cursor_size();
         let pid = launch_application(
             &arguments,
             desktop_file_id,
@@ -394,6 +399,7 @@ impl SystemCommandHandler {
             display,
             self.x11_display.as_deref(),
             self.output_control_socket.as_deref(),
+            cursor_size,
             &application_environment,
         )?;
         info!(
@@ -409,6 +415,16 @@ impl SystemCommandHandler {
             Err(error) => {
                 warn!(%error, "ignoring invalid application environment overrides");
                 ApplicationEnvironment::default()
+            }
+        }
+    }
+
+    fn cursor_size(&self) -> u32 {
+        match load_cursor_size() {
+            Ok(cursor_size) => cursor_size,
+            Err(error) => {
+                warn!(%error, "using the default cursor size for application launch");
+                DEFAULT_CURSOR_SIZE
             }
         }
     }
@@ -597,6 +613,7 @@ fn launch_application(
     wayland_display: &OsStr,
     x11_display: Option<&OsStr>,
     output_control_socket: Option<&OsStr>,
+    cursor_size: u32,
     application_environment: &ApplicationEnvironment,
 ) -> Result<u32, DispatchError> {
     // Start the reaper first. If the system cannot create that one persistent
@@ -616,6 +633,7 @@ fn launch_application(
         x11_display,
         output_control_socket,
         std::env::var_os("QT_QPA_PLATFORMTHEME").as_deref(),
+        cursor_size,
         application_environment,
         desktop_file_id,
     );
@@ -668,6 +686,7 @@ fn application_command(
     x11_display: Option<&OsStr>,
     output_control_socket: Option<&OsStr>,
     qt_platform_theme: Option<&OsStr>,
+    cursor_size: u32,
     application_environment: &ApplicationEnvironment,
     desktop_file_id: Option<&str>,
 ) -> Command {
@@ -685,6 +704,7 @@ fn application_command(
         .env("XDG_SESSION_DESKTOP", "Denial")
         .env("XDG_SESSION_TYPE", "wayland")
         .env("DESKTOP_SESSION", "Denial")
+        .env("XCURSOR_SIZE", cursor_size.to_string())
         .env(
             "QT_QPA_PLATFORMTHEME",
             qt_platform_theme.unwrap_or_else(|| OsStr::new(DEFAULT_QT_QPA_PLATFORMTHEME)),
@@ -704,6 +724,7 @@ fn application_command(
     if let Some(socket) = output_control_socket {
         command.env("DENIAL_SOCKET", socket);
     }
+    crate::xcursor_sentinel::apply_to_command(&mut command);
     // These overrides affect only processes spawned by the compositor. Apply
     // them after Denial's inherited-session cleanup and endpoint defaults so
     // an explicit null can remove DISPLAY or another default deliberately.
@@ -741,7 +762,10 @@ fn application_command(
         });
     }
     if let Some(request_id) = launch_request_id {
-        command.env("DENIA_LAUNCH_REQUEST_ID", request_id.get().to_string());
+        let request_id = request_id.get().to_string();
+        command
+            .env("DENIAL_LAUNCH_REQUEST_ID", &request_id)
+            .env("DENIA_LAUNCH_REQUEST_ID", request_id);
     }
     if let Some(token) = activation_token {
         command.env("XDG_ACTIVATION_TOKEN", token);

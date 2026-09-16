@@ -1,12 +1,12 @@
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
 import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
+import 'package:denial_dart_shell/src/widgets/mobile_ui_metrics.dart';
 import 'package:denial_dart_shell/src/widgets/notification_banner.dart';
 import 'package:denial_dart_shell/src/widgets/notification_media.dart';
 import 'package:denial_dart_shell/src/widgets/shade/mobile_notification_history.dart';
 import 'package:denial_dart_shell/src/widgets/shade/notification_shade_list.dart';
 import 'package:denial_dart_shell/src/widgets/shade/quick_settings_panel.dart';
-import 'package:denial_dart_shell/src/widgets/shade/range_bar.dart';
 import 'package:denial_dart_shell/src/widgets/shell_backdrop_blur.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
@@ -216,7 +216,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('cards use theme roundness and readable mobile type', (
+  testWidgets('cards use theme roundness and standard mobile metrics', (
     tester,
   ) async {
     final harness = DesktopNotificationsTestHarness();
@@ -249,14 +249,23 @@ void main() {
           .borderRadius,
       BorderRadius.circular(theme.panelRadius),
     );
-    expect(tester.widget<Text>(find.text('Message title')).style!.fontSize, 20);
-    expect(tester.widget<Text>(find.text('Message body')).style!.fontSize, 18);
+    expect(
+      tester.widget<Text>(find.text('Message title')).style!.fontSize,
+      MobileNotificationMetrics.titleFontSize,
+    );
+    expect(
+      tester.widget<Text>(find.text('Message body')).style!.fontSize,
+      MobileNotificationMetrics.bodyFontSize,
+    );
     expect(
       tester.getSize(find.byType(NotificationCard)).height,
       greaterThanOrEqualTo(96),
     );
     final artwork = find.byType(NotificationArtwork);
-    expect(tester.getSize(artwork), const Size(56, 56));
+    expect(
+      tester.getSize(artwork),
+      const Size.square(MobileNotificationMetrics.leadingArtwork),
+    );
     final title = find.text('Message title');
     final body = find.text('Message body');
     expect(tester.getTopLeft(title).dx, tester.getTopLeft(body).dx);
@@ -271,43 +280,37 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets(
-    'clear all lives below volume in the controls and clears history',
-    (tester) async {
-      final harness = DesktopNotificationsTestHarness();
-      addTearDown(harness.dispose);
-      harness.add(notificationEvent(notificationFixture(resident: true)));
-      await tester.pumpWidget(
-        _harness(
-          harness,
-          const QuickSettingsShade(progress: AlwaysStoppedAnimation(1)),
-          reducedMotion: true,
+  testWidgets('notification center clear action clears history', (
+    tester,
+  ) async {
+    final harness = DesktopNotificationsTestHarness();
+    addTearDown(harness.dispose);
+    harness.add(notificationEvent(notificationFixture(resident: true)));
+    await tester.pumpWidget(
+      _harness(
+        harness,
+        const QuickSettingsShade(
+          progress: AlwaysStoppedAnimation(1),
+          page: ShadePage.notifications,
         ),
-      );
-      await tester.pumpAndSettle();
-      final clear = find.byType(ClearNotificationHistoryButton);
-      expect(
-        find.descendant(
-          of: find.byType(MobileNotificationHistory),
-          matching: clear,
-        ),
-        findsNothing,
-      );
-      await tester.ensureVisible(clear);
-      expect(
-        tester.getTopLeft(clear).dy,
-        greaterThanOrEqualTo(
-          tester.getBottomLeft(find.byType(RangeBar).last).dy,
-        ),
-      );
-      expect(tester.getTopRight(clear).dx, closeTo(384, 0.1));
-      await tester.tap(clear);
-      await tester.pumpAndSettle();
-      expect(harness.state.history, isEmpty);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
+        reducedMotion: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final clear = find.byType(ClearNotificationHistoryButton);
+    expect(
+      find.descendant(
+        of: find.byType(MobileNotificationHistory),
+        matching: clear,
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(clear);
+    await tester.pumpAndSettle();
+    expect(harness.state.history, isEmpty);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('empty history space dismisses while card controls do not', (
     tester,

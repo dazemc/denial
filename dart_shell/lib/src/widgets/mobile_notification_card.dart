@@ -14,7 +14,7 @@ class MobileNotificationCard extends StatefulWidget {
     this.onAction,
   });
 
-  static const horizontalMargin = 16.0;
+  static const horizontalMargin = MobileNotificationMetrics.horizontalMargin;
 
   final DesktopNotification notification;
   final NotificationPreviewMode previewMode;
@@ -92,35 +92,38 @@ class _MobileNotificationDetailsButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    label: label,
-    child: FocusableActionDetector(
-      mouseCursor: SystemMouseCursors.click,
-      shortcuts: const {
-        SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-        SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-      },
-      actions: {
-        ActivateIntent: CallbackAction<ActivateIntent>(
-          onInvoke: (_) {
-            onPressed();
-            return null;
-          },
-        ),
-      },
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onPressed,
-        child: SizedBox.square(
-          dimension: 48,
-          child: Icon(
-            expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-            color: context.shellColors.textSecondary,
-            size: 22,
+  Widget build(BuildContext context) {
+    final metrics = MobileUiMetrics.of(context);
+    return Semantics(
+      button: true,
+      label: label,
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        shortcuts: const {
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        },
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              onPressed();
+              return null;
+            },
+          ),
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onPressed,
+          child: SizedBox.square(
+            dimension: metrics.visual(MobileNotificationMetrics.detailsExtent),
+            child: Icon(
+              expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+              color: context.shellColors.textSecondary,
+              size: metrics.visual(MobileNotificationMetrics.detailsIcon),
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }

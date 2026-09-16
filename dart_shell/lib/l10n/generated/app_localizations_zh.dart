@@ -2043,6 +2043,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsTouchpadScrollSpeed => '手指滚动速度';
 
   @override
+  String get settingsTouchpadScrollingLayoutSwipeSpeed => '滚动布局滑动速度';
+
+  @override
   String get settingsMousePointerSpeed => '鼠标指针速度';
 
   @override
@@ -2225,6 +2228,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutGestureFourFingerSwipeRight => '四指向右轻扫';
 
   @override
+  String get settingsShortcutGestureFourFingerSwipeUp => '四指向上轻扫';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeDown => '四指向下轻扫';
+
+  @override
   String get settingsShortcutInputCategoryModifier => '修饰键';
 
   @override
@@ -2292,6 +2301,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsShortcutActionToggleFullscreen => '进入或退出全屏';
+
+  @override
+  String get settingsShortcutActionToggleWindowAlwaysOnTop => '置顶或取消置顶窗口';
 
   @override
   String get settingsShortcutActionReleasePointer => '释放指针';
@@ -2379,13 +2391,16 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsWindowLayoutDescription =>
-      '堆叠允许窗口自由移动和重叠。平铺使用动态二叉树排列窗口，并让临时窗口保持浮动。';
+      '堆叠允许窗口相互重叠。平铺动态划分桌面。滚动平铺将窗口排列成跟随焦点的长带；显示器旋转 90° 或 270° 时，长带会改为纵向。';
 
   @override
   String get settingsWindowLayoutDwindle => '平铺';
 
   @override
   String get settingsWindowLayoutStacking => '堆叠';
+
+  @override
+  String get settingsWindowLayoutScrolling => '滚动平铺';
 
   @override
   String get settingsWindowLayoutTitle => '窗口布局';
@@ -2402,6 +2417,15 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsWorkspaceCount => 'Workspace count';
+
+  @override
+  String get settingsWorkspaceSwitchingOrientation => '切换方向';
+
+  @override
+  String get settingsWorkspaceSwitchingHorizontal => '水平';
+
+  @override
+  String get settingsWorkspaceSwitchingVertical => '垂直';
 
   @override
   String workspaceLabel(int workspace) {
@@ -3480,5 +3504,141 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String settingsGlassRimPixels(String width) {
     return '$width 像素';
+  }
+
+  @override
+  String get lockFingerprintNotRecognized => '未识别指纹';
+
+  @override
+  String get fingerprintSection => '指纹';
+
+  @override
+  String get fingerprintPasswordPrompt => '请输入 sudo 密码以管理指纹。';
+
+  @override
+  String get fingerprintSudoPassword => 'sudo 密码';
+
+  @override
+  String get fingerprintContinue => '继续';
+
+  @override
+  String get fingerprintDescription => '使用已录入的指纹解锁 Denial。';
+
+  @override
+  String get fingerprintEmptyTitle => '尚未录入指纹';
+
+  @override
+  String get fingerprintEmptyDescription => '在下方选择手指，录入第一个指纹。';
+
+  @override
+  String get fingerprintChooseFinger => '要录入的手指';
+
+  @override
+  String get fingerprintEnroll => '录入指纹';
+
+  @override
+  String get fingerprintAdd => '添加指纹';
+
+  @override
+  String get fingerprintAuthenticationFailed => '密码验证失败，请重试。';
+
+  @override
+  String get fingerprintExpired => '请重新输入密码以继续。';
+
+  @override
+  String get fingerprintPreparing => '正在准备指纹读取器…';
+
+  @override
+  String get fingerprintTouchSensor => '用所选手指触碰传感器，然后抬起。';
+
+  @override
+  String get fingerprintEnrolled => '指纹已录入，现在可以用它解锁 Denial。';
+
+  @override
+  String get fingerprintCancelled => '已取消录入。';
+
+  @override
+  String get fingerprintDuplicate => '此指纹已录入，请选择另一根手指。';
+
+  @override
+  String get fingerprintRetry => '抬起手指，调整位置后再次触碰传感器。';
+
+  @override
+  String get fingerprintUnavailable => '无法完成指纹管理，请检查读取器后重试。';
+
+  @override
+  String fingerprintProgress(int completed, int total) {
+    return '已完成 $completed/$total 次扫描';
+  }
+
+  @override
+  String get fingerprintLeftThumb => '左拇指';
+
+  @override
+  String get fingerprintLeftIndex => '左食指';
+
+  @override
+  String get fingerprintLeftMiddle => '左中指';
+
+  @override
+  String get fingerprintLeftRing => '左无名指';
+
+  @override
+  String get fingerprintLeftLittle => '左小指';
+
+  @override
+  String get fingerprintRightThumb => '右拇指';
+
+  @override
+  String get fingerprintRightIndex => '右食指';
+
+  @override
+  String get fingerprintRightMiddle => '右中指';
+
+  @override
+  String get fingerprintRightRing => '右无名指';
+
+  @override
+  String get fingerprintRightLittle => '右小指';
+
+  @override
+  String get mobileData => '移动数据';
+
+  @override
+  String get mobileConnected => '已连接';
+
+  @override
+  String get mobileDisconnected => '未连接';
+
+  @override
+  String get mobileUnavailable => '移动网络不可用';
+
+  @override
+  String get mobileChangeFailed => '无法更改移动数据';
+
+  @override
+  String get simPinTitle => '解锁 SIM 卡';
+
+  @override
+  String get simPinLabel => 'SIM PIN';
+
+  @override
+  String get simPinUnlock => '解锁 SIM 卡';
+
+  @override
+  String get simPinLater => '稍后';
+
+  @override
+  String get simPinFailed => '无法解锁 SIM 卡。请检查 PIN 和剩余尝试次数。';
+
+  @override
+  String get simPukRequired => 'SIM 卡需要 PUK。请联系运营商。';
+
+  @override
+  String get simLocked => 'SIM 卡已锁定';
+
+  @override
+  String simPinRetries(int count) {
+    return '剩余 $count 次尝试';
   }
 }

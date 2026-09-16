@@ -55,6 +55,14 @@ fn interactive_service_work_pending(events: &RuntimeState) -> bool {
         || !events.pending_window_events.is_empty()
 }
 
+fn output_transaction_waiting(
+    ready_output_apply: bool,
+    pending_output_apply: bool,
+    resident_geometry_reconfigure_requested: bool,
+) -> bool {
+    ready_output_apply || pending_output_apply || resident_geometry_reconfigure_requested
+}
+
 pub(super) struct FlutterEventLoopContext<'a, 'event_loop> {
     pub(super) renderer: &'a mut GlesRenderer,
     pub(super) drm: &'a mut DrmDevice,
@@ -436,6 +444,19 @@ pub(super) fn run_flutter_event_loop(
             )?;
         }
         if !scanout_rebased {
+            let (changed, power) = events.fingerprint.service(
+                drm,
+                renderer,
+                scanouts,
+                flutter.as_mut().ok_or("fingerprint requires Flutter")?,
+            )?;
+            for (output, powered) in power {
+                events.output_power_requests.insert(output, powered);
+            }
+            if changed {
+                frame_scheduler.mark_all_dirty();
+                wayland_frontend::reset_all_input_devices(&mut events);
+            }
             let runtime = flutter
                 .as_mut()
                 .ok_or("Flutter runtime disappeared during page-flip completion")?;
@@ -496,7 +517,7 @@ pub(super) fn run_flutter_event_loop(
             // following frame already occupies Ready. Move that frame into
             // the now-free Volition slot before the timer decision, exposing
             // the third pool entry for exactly one new raster lookahead.
-            submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+            submit_ready_frames(runtime, &mut scheduler, swapchain, scanouts, &mut events)?;
 
             loop {
                 let Some(ready) =
@@ -540,9 +561,18 @@ pub(super) fn run_flutter_event_loop(
             }
             collect_flutter_output_damage(runtime, &mut frame_scheduler);
 
-            let output_apply_waiting =
-                ready_output_apply.is_some() || !events.pending_output_applies.is_empty();
-            if !output_apply_waiting && frame_limit.is_none_or(|limit| raster_frames < limit) {
+            // A resident geometry rollback can only replace Flutter's output
+            // geometry after every old-geometry target has drained. Keep the
+            // producer stopped while that rollback is pending; otherwise a
+            // continuously animated cursor can refill the target each time
+            // through the loop and starve both rollback and input forever.
+            let output_transaction_waiting = output_transaction_waiting(
+                ready_output_apply.is_some(),
+                !events.pending_output_applies.is_empty(),
+                events.resident_geometry_reconfigure_requested,
+            );
+            if !output_transaction_waiting && frame_limit.is_none_or(|limit| raster_frames < limit)
+            {
                 let frame_action = runtime.with_frame_readiness(|pending, target_available| {
                     frame_scheduler.step_with_output_readiness(frame_now, pending, |output| {
                         (scheduler.render_available(output), target_available(output))
@@ -567,7 +597,7 @@ pub(super) fn run_flutter_event_loop(
             // This remains ahead of input, Wayland traversal, and background
             // shell synchronization, but follows frame-clock authorization so
             // those tasks cannot perturb Flutter's animation timestamp.
-            submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+            submit_ready_frames(runtime, &mut scheduler, swapchain, scanouts, &mut events)?;
             for tick in frame_scheduler.output_ticks().iter().copied() {
                 if let Some(frontend) = events.wayland.as_mut() {
                     frontend.frame_tick(tick)?;
@@ -636,7 +666,9 @@ pub(super) fn run_flutter_event_loop(
         if background_maintenance_due {
             synchronize_idle_dpms(scanouts, &mut events, background_started);
         }
+        dpms::synchronize_wake_gestures(scanouts, &mut events);
         synchronize_power_button(scanouts, &mut events);
+        synchronize_fingerprint_display_wake(scanouts, &scheduler, &mut events);
         // The synchronous VT-resume commit invalidated the old scheduler's
         // per-output buffer ownership. Preserve requests until the topology
         // path below recreates that scheduler.
@@ -757,7 +789,15 @@ pub(super) fn run_flutter_event_loop(
                 continue;
             }
             if scheduler.has_pending_scanout_work() {
-                submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+                submit_ready_frames(
+                    flutter
+                        .as_ref()
+                        .ok_or("Flutter runtime disappeared before frame submission")?,
+                    &mut scheduler,
+                    swapchain,
+                    scanouts,
+                    &mut events,
+                )?;
                 events.pending_output_applies.push_front(request);
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
@@ -801,7 +841,15 @@ pub(super) fn run_flutter_event_loop(
                 // old-geometry frame instead of treating normal scheduler
                 // ownership as a fatal reconfiguration error.
                 ready_output_apply = Some((request, connectors));
-                submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+                submit_ready_frames(
+                    flutter
+                        .as_ref()
+                        .ok_or("Flutter runtime disappeared before frame submission")?,
+                    &mut scheduler,
+                    swapchain,
+                    scanouts,
+                    &mut events,
+                )?;
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
                     Duration::from_millis(50).min(deadline.saturating_duration_since(now))
@@ -1297,7 +1345,15 @@ pub(super) fn run_flutter_event_loop(
                     // common rollback point used by the hotplug transaction.
                     // A signalled ready fence can enter Volition lookahead;
                     // an unfinished one will wake this loop through calloop.
-                    submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+                    submit_ready_frames(
+                        flutter
+                            .as_ref()
+                            .ok_or("Flutter runtime disappeared before frame submission")?,
+                        &mut scheduler,
+                        swapchain,
+                        scanouts,
+                        &mut events,
+                    )?;
                     events.topology_dirty = true;
                     events.kms_reconfigure_requested = kms_reconfigure_requested;
                     events.resident_geometry_reconfigure_requested =
@@ -1413,12 +1469,26 @@ pub(super) fn run_flutter_event_loop(
                 true,
                 "Flutter runtime is refreshing",
             )?;
-            if scheduler.has_pending_scanout_work() {
+            let scanout_work_pending = scheduler.has_pending_scanout_work();
+            let resident_targets_idle = flutter.as_ref().is_some_and(|runtime| {
+                scanouts
+                    .iter()
+                    .all(|scanout| runtime.output_target_available(scanout.output.id))
+            });
+            if scanout_work_pending || !resident_targets_idle {
                 // Stop servicing the producer while its last output batch reaches
                 // every affected CRTC. A ready fence or page flip will wake
                 // this loop through calloop, without disturbing clients or
                 // the graphical session.
-                submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+                submit_ready_frames(
+                    flutter
+                        .as_ref()
+                        .ok_or("Flutter runtime disappeared before frame submission")?,
+                    &mut scheduler,
+                    swapchain,
+                    scanouts,
+                    &mut events,
+                )?;
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
                     Duration::from_millis(50).min(deadline.saturating_duration_since(now))
@@ -1428,9 +1498,7 @@ pub(super) fn run_flutter_event_loop(
             }
 
             scheduler.prepare_reconfiguration(scanouts, &mut events)?;
-            retired_output_flips =
-                retired_output_flips.saturating_add(scheduler.presented_frames());
-            reload_flutter_runtime(
+            let reload = reload_flutter_runtime(
                 renderer,
                 swapchain,
                 scanouts,
@@ -1439,24 +1507,37 @@ pub(super) fn run_flutter_event_loop(
                 flutter,
                 flutter_launcher,
             )?;
-            scheduler = output_scheduler::OutputScheduler::new(
-                drm,
-                volition_event_sender.clone(),
-                scanouts,
-                swapchain
-                    .outputs()
-                    .ok_or("output scheduler has no physical output pools")?,
-                flutter
-                    .as_mut()
-                    .ok_or("Flutter runtime was not restarted after bundle refresh")?,
-                &mut events,
-            )?;
-            frame_scheduler = frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
             events.flutter_reload_requested = false;
-            info!(
-                generation = flutter_launcher.generation,
-                "refreshed Flutter bundle without restarting the compositor session"
-            );
+            match reload {
+                FlutterReloadOutcome::Replaced => {
+                    retired_output_flips =
+                        retired_output_flips.saturating_add(scheduler.presented_frames());
+                    scheduler = output_scheduler::OutputScheduler::new(
+                        drm,
+                        volition_event_sender.clone(),
+                        scanouts,
+                        swapchain
+                            .outputs()
+                            .ok_or("output scheduler has no physical output pools")?,
+                        flutter
+                            .as_mut()
+                            .ok_or("Flutter runtime was not restarted after bundle refresh")?,
+                        &mut events,
+                    )?;
+                    frame_scheduler =
+                        frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
+                    info!(
+                        generation = flutter_launcher.generation,
+                        "refreshed Flutter bundle without restarting the compositor session"
+                    );
+                }
+                FlutterReloadOutcome::Retained => {
+                    info!(
+                        generation = flutter_launcher.generation,
+                        "retained the active Flutter bundle after refresh preflight rejection"
+                    );
+                }
+            }
             continue;
         }
 
@@ -1684,6 +1765,9 @@ pub(super) fn run_flutter_event_loop(
         next_dispatch_timeout = events
             .dpms_topology
             .limit_dispatch_timeout(now, next_dispatch_timeout);
+        if events.fingerprint.active() {
+            next_dispatch_timeout = next_dispatch_timeout.min(Duration::from_millis(20));
+        }
         if drm.is_active() {
             next_dispatch_timeout =
                 scheduler.limit_presentation_watchdog_timeout(now, next_dispatch_timeout);
@@ -1748,4 +1832,19 @@ pub(super) fn run_flutter_event_loop(
         "independently clocked Flutter KMS session complete"
     );
     Ok(swapchain.representative_framebuffer())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::output_transaction_waiting;
+
+    #[test]
+    fn resident_geometry_rollback_stops_frame_production_while_targets_drain() {
+        assert!(output_transaction_waiting(false, false, true));
+    }
+
+    #[test]
+    fn idle_output_transaction_does_not_stop_frame_production() {
+        assert!(!output_transaction_waiting(false, false, false));
+    }
 }

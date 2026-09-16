@@ -28,6 +28,7 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
   late final ProxyAnimation _sharedProgress;
   bool _mountedPanel = false;
   bool _offstage = true;
+  ShadePage _page = ShadePage.quickSettings;
 
   @override
   void initState() {
@@ -77,6 +78,17 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
     }
   }
 
+  void _selectPageFromStatusBar(Offset position) {
+    final width = MediaQuery.sizeOf(context).width;
+    final downOnRight = position.dx >= width / 2;
+    final quickSettingsOnRight =
+        Directionality.of(context) == TextDirection.ltr;
+    final page = downOnRight == quickSettingsOnRight
+        ? ShadePage.quickSettings
+        : ShadePage.notifications;
+    if (_page != page) setState(() => _page = page);
+  }
+
   @override
   Widget build(BuildContext context) {
     final closed = ref.watch(
@@ -102,7 +114,6 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            ShadeStatusBar(shadeProgress: _controller),
             if (_mountedPanel)
               Offstage(
                 offstage: _offstage,
@@ -113,10 +124,18 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
                       progress: _controller,
                       active: !_offstage,
                       closed: closed,
+                      page: _page,
+                      onPageChanged: (page) {
+                        if (_page != page) setState(() => _page = page);
+                      },
                     ),
                   ),
                 ),
               ),
+            ShadeStatusBar(
+              shadeProgress: _controller,
+              onDragStart: _selectPageFromStatusBar,
+            ),
           ],
         ),
       ),

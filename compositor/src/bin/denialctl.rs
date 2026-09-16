@@ -788,8 +788,9 @@ fn copy_source_tree(source: &Path, destination: &Path) -> Result<(), CliError> {
 }
 
 fn prepare_ui_workspace(workspace: &Path, capture_output: bool) -> Result<(), CliError> {
-    let tool = env::var_os("DENIAL_UI_TOOL")
+    let tool = env::var_os("DENIAL_DEVELOPMENT_TOOL")
         .filter(|value| !value.is_empty())
+        .or_else(|| env::var_os("DENIAL_UI_TOOL").filter(|value| !value.is_empty()))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(SYSTEM_UI_TOOL));
     let metadata = fs::symlink_metadata(&tool).map_err(|error| {

@@ -38,6 +38,7 @@ Suggests:       ddcutil
 Suggests:       gdm
 Suggests:       iwd
 Suggests:       NetworkManager
+Suggests:       ModemManager
 Conflicts:      denial-git
 Requires(post): systemd
 Requires(preun): systemd

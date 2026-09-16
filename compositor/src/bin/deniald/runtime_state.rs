@@ -4,6 +4,8 @@ use super::*;
 
 #[derive(Default)]
 pub(super) struct RuntimeState {
+    #[cfg(feature = "flutter")]
+    pub(super) fingerprint: fingerprint_presentation::Controller,
     pub(super) pending: HashSet<crtc::Handle>,
     pub(super) completed_page_flips: VecDeque<PageFlipCompletion>,
     pub(super) scanout_rebased: bool,
@@ -105,6 +107,8 @@ pub(super) struct RuntimeState {
     pub(super) idle_policy: idle_policy::IdlePolicy,
     #[cfg(feature = "flutter")]
     pub(super) power_button: idle_policy::PowerButton,
+    #[cfg(feature = "flutter")]
+    pub(super) wake_gesture_outputs: BTreeSet<String>,
 }
 
 #[cfg(feature = "flutter")]
@@ -188,8 +192,12 @@ impl RuntimeState {
         self.restored_window_ids
             .extend(self.published_window_ids.drain());
         self.flutter_input.resize(size);
-        if let Some(frontend) = self.wayland.as_mut() {
-            frontend.reset_flutter_input_generation();
+        let restore_shell_focus = self
+            .wayland
+            .as_mut()
+            .is_some_and(|frontend| frontend.reset_flutter_input_generation());
+        if restore_shell_focus {
+            wayland_frontend::restore_shell_keyboard_focus(self);
         }
         self.synchronize_flutter_pointer_position();
         self.flutter_channel_closed = false;

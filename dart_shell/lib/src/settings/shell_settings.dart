@@ -42,7 +42,9 @@ enum MinimizedWindowPlacement { desktop, offscreen }
 
 /// Compositor geometry policy for ordinary, non-transient desktop windows.
 /// Each value maps to a Rust `WindowLayout` implementation.
-enum DesktopWindowLayout { stacking, dwindle }
+enum DesktopWindowLayout { stacking, dwindle, scrolling }
+
+enum WorkspaceSwitchingOrientation { horizontal, vertical }
 
 const int minimumWorkspaceCount = 2;
 const int maximumWorkspaceCount = 9;
@@ -50,7 +52,7 @@ const int defaultWorkspaceCount = 4;
 
 const double clipboardTrayMinimumExtent = 100;
 const double clipboardTrayMaximumExtent = 300;
-const double clipboardTrayDefaultExtent = 250;
+const double clipboardTrayDefaultExtent = 160;
 const double launcherOverlayMinimumHeight = 200;
 
 enum ShellLocalePreference { system, english, simplifiedChinese }
@@ -86,12 +88,12 @@ class ShellAppearanceSettings {
     this.colorSchemePreference = DesktopColorSchemePreference.preferDark,
     this.accentSource = ShellAccentSource.wallpaper,
     this.customAccentColor = ShellBrandColors.defaultAccent,
-    this.cornerRadiusScale = ShellRoundness.normal,
-    this.panelOpacity = ShellOpacity.panel,
-    this.cardOpacity = ShellOpacity.card,
-    this.transparencyMode = ShellTransparencyMode.blur,
-    this.backdropBlurLevel = ShellBackdropBlurLevel.fast,
-    this.backdropBlurOpacityThreshold = 0.2,
+    this.cornerRadiusScale = 0.3,
+    this.panelOpacity = 0.75,
+    this.cardOpacity = 0.4421052631578947,
+    this.transparencyMode = ShellTransparencyMode.glass,
+    this.backdropBlurLevel = ShellBackdropBlurLevel.good,
+    this.backdropBlurOpacityThreshold = 0.65,
     this.glass = const ShellGlassConfiguration(),
     this.focusedWindowBorderEnabled = true,
     this.focusedWindowOpacity = 1,
@@ -255,18 +257,21 @@ class ShellLayoutSettings {
     this.windowLayout = DesktopWindowLayout.stacking,
     this.workspacesEnabled = false,
     this.workspaceCount = defaultWorkspaceCount,
-    this.systemBarSide,
+    this.workspaceSwitchingOrientation =
+        WorkspaceSwitchingOrientation.horizontal,
+    this.systemBarSide = SystemBarSide.top,
     this.systemBarOutputNames = const <String>[],
-    this.systemBarThickness = 32,
-    this.maximizePadding = 10,
-    this.minimizedWindowPlacement = MinimizedWindowPlacement.desktop,
-    this.clipboardTrayEdge = ClipboardTrayEdge.right,
+    this.systemBarThickness = 33,
+    this.maximizePadding = 8,
+    this.minimizedWindowPlacement = MinimizedWindowPlacement.offscreen,
+    this.clipboardTrayEdge = ClipboardTrayEdge.left,
     this.clipboardTrayExtent = clipboardTrayDefaultExtent,
   });
 
   final DesktopWindowLayout windowLayout;
   final bool workspacesEnabled;
   final int workspaceCount;
+  final WorkspaceSwitchingOrientation workspaceSwitchingOrientation;
   final SystemBarSide? systemBarSide;
   final List<String> systemBarOutputNames;
   final double systemBarThickness;
@@ -279,6 +284,7 @@ class ShellLayoutSettings {
     DesktopWindowLayout? windowLayout,
     bool? workspacesEnabled,
     int? workspaceCount,
+    WorkspaceSwitchingOrientation? workspaceSwitchingOrientation,
     SystemBarSide? systemBarSide,
     bool clearSystemBarSide = false,
     List<String>? systemBarOutputNames,
@@ -292,6 +298,8 @@ class ShellLayoutSettings {
       windowLayout: windowLayout ?? this.windowLayout,
       workspacesEnabled: workspacesEnabled ?? this.workspacesEnabled,
       workspaceCount: workspaceCount ?? this.workspaceCount,
+      workspaceSwitchingOrientation:
+          workspaceSwitchingOrientation ?? this.workspaceSwitchingOrientation,
       systemBarSide: clearSystemBarSide
           ? null
           : systemBarSide ?? this.systemBarSide,
@@ -313,6 +321,7 @@ class ShellLayoutSettings {
         other.windowLayout == windowLayout &&
         other.workspacesEnabled == workspacesEnabled &&
         other.workspaceCount == workspaceCount &&
+        other.workspaceSwitchingOrientation == workspaceSwitchingOrientation &&
         other.systemBarSide == systemBarSide &&
         listEquals(other.systemBarOutputNames, systemBarOutputNames) &&
         other.systemBarThickness == systemBarThickness &&
@@ -327,6 +336,7 @@ class ShellLayoutSettings {
     windowLayout,
     workspacesEnabled,
     workspaceCount,
+    workspaceSwitchingOrientation,
     systemBarSide,
     Object.hashAll(systemBarOutputNames),
     systemBarThickness,
@@ -802,7 +812,7 @@ class ShellSettings {
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
   // sigma so older shells can read settings written by this version.
-  static const int schemaVersion = 24;
+  static const int schemaVersion = 25;
 
   final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;
@@ -926,6 +936,11 @@ class ShellSettings {
       }
       if (layout.workspaceCount != before.workspaceCount) {
         section['workspaceCount'] = layout.workspaceCount;
+      }
+      if (layout.workspaceSwitchingOrientation !=
+          before.workspaceSwitchingOrientation) {
+        section['workspaceSwitchingOrientation'] =
+            layout.workspaceSwitchingOrientation.name;
       }
       if (layout.systemBarSide != before.systemBarSide) {
         section['systemBarSide'] = layout.systemBarSide?.name;
@@ -1072,11 +1087,13 @@ class ShellSettings {
         'cursorThemeId': appearance.cursorThemeId,
         'allowClientCursorSurfaces': appearance.allowClientCursorSurfaces,
       },
-      'layout': <String, Object>{
+      'layout': <String, Object?>{
         'windowLayout': layout.windowLayout.name,
         'workspacesEnabled': layout.workspacesEnabled,
         'workspaceCount': layout.workspaceCount,
-        if (layout.systemBarSide case final side?) 'systemBarSide': side.name,
+        'workspaceSwitchingOrientation':
+            layout.workspaceSwitchingOrientation.name,
+        'systemBarSide': layout.systemBarSide?.name,
         'systemBarOutputs': layout.systemBarOutputNames,
         'systemBarThickness': layout.systemBarThickness,
         'maximizePadding': layout.maximizePadding,
@@ -1196,10 +1213,10 @@ class ShellSettings {
               idleSuspendTimeoutMinutes,
             )
             .toInt();
-    final legacyTransparencyMode =
-        appearanceJson['backdropBlurEnabled'] is bool &&
-            !(appearanceJson['backdropBlurEnabled'] as bool)
-        ? ShellTransparencyMode.off
+    final legacyTransparencyMode = appearanceJson['backdropBlurEnabled'] is bool
+        ? (appearanceJson['backdropBlurEnabled'] as bool
+              ? ShellTransparencyMode.blur
+              : ShellTransparencyMode.off)
         : defaults.appearance.transparencyMode;
     return ShellSettings(
       localization: ShellLocalizationSettings(
@@ -1308,10 +1325,17 @@ class ShellSettings {
           minimumWorkspaceCount,
           maximumWorkspaceCount,
         ),
-        systemBarSide: _nullableEnumValue(
-          SystemBarSide.values,
-          layoutJson['systemBarSide'],
+        workspaceSwitchingOrientation: _enumValue(
+          WorkspaceSwitchingOrientation.values,
+          layoutJson['workspaceSwitchingOrientation'],
+          defaults.layout.workspaceSwitchingOrientation,
         ),
+        systemBarSide: layoutJson.isNotEmpty
+            ? _nullableEnumValue(
+                SystemBarSide.values,
+                layoutJson['systemBarSide'],
+              )
+            : defaults.layout.systemBarSide,
         systemBarOutputNames: List<String>.unmodifiable(outputNames),
         systemBarThickness: _number(
           layoutJson['systemBarThickness'],

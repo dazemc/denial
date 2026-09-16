@@ -16,9 +16,11 @@ import '../services/notification_policy_repository.dart';
 import '../state/desktop_notifications.dart';
 import '../state/display_layout.dart';
 import '../state/shell_controller.dart';
+import '../theme/glass_configuration.dart';
 import '../theme/motion.dart';
 import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
+import 'mobile_ui_metrics.dart';
 import 'notification_media.dart';
 import 'shell_backdrop_blur.dart';
 import 'shade/shade_backdrop_scene.dart';
@@ -84,24 +86,37 @@ class NotificationBannerLayer extends ConsumerWidget {
         if (rect.isEmpty) {
           return const SizedBox.shrink();
         }
+        final localRect = rect.shift(-output.topLeft);
         return Stack(
           fit: StackFit.expand,
           children: [
             Positioned.fromRect(
-              rect: rect,
-              child: Align(
-                alignment: placement.anchor.alignment,
-                child: SizedBox(
-                  width: rect.width,
-                  child: NotificationBannerView(
-                    notifications: notifications,
-                    previewMode: previewMode,
-                    interactive: !locked,
-                    entryOffset: _notificationEntryOffset(placement.anchor),
-                    onDismiss: controller.dismiss,
-                    onDefaultAction: controller.invokeDefaultAction,
-                    onAction: controller.invokeAction,
-                  ),
+              rect: output,
+              child: ClipRect(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Positioned.fromRect(
+                      rect: localRect,
+                      child: Align(
+                        alignment: placement.anchor.alignment,
+                        child: SizedBox(
+                          width: rect.width,
+                          child: NotificationBannerView(
+                            notifications: notifications,
+                            previewMode: previewMode,
+                            interactive: !locked,
+                            entryOffset: _notificationEntryOffset(
+                              placement.anchor,
+                            ),
+                            onDismiss: controller.dismiss,
+                            onDefaultAction: controller.invokeDefaultAction,
+                            onAction: controller.invokeAction,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),

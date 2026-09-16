@@ -4,9 +4,6 @@
 #[cfg(feature = "flutter")]
 #[path = "deniald/authentication.rs"]
 mod authentication;
-#[cfg(feature = "flutter")]
-#[path = "deniald/surface_feedback.rs"]
-mod surface_feedback;
 #[path = "deniald/clipboard.rs"]
 mod clipboard;
 #[path = "deniald/cpu_scheduling.rs"]
@@ -16,6 +13,9 @@ mod cpu_scheduling;
 mod dpms;
 #[path = "deniald/egl_context.rs"]
 mod egl_context;
+#[cfg(feature = "flutter")]
+#[path = "deniald/fingerprint_presentation.rs"]
+mod fingerprint_presentation;
 #[cfg(feature = "flutter")]
 #[path = "deniald/flutter_event_loop.rs"]
 mod flutter_event_loop;
@@ -39,6 +39,9 @@ mod frame_loop;
 #[cfg(feature = "flutter")]
 #[path = "deniald/frame_scheduler.rs"]
 mod frame_scheduler;
+#[cfg(feature = "flutter")]
+#[path = "deniald/haptics.rs"]
+mod haptics;
 #[path = "deniald/hotplug_transaction.rs"]
 mod hotplug_transaction;
 #[cfg(feature = "flutter")]
@@ -92,6 +95,9 @@ mod session_activation;
 mod settings;
 #[path = "deniald/startup.rs"]
 mod startup;
+#[cfg(feature = "flutter")]
+#[path = "deniald/surface_feedback.rs"]
+mod surface_feedback;
 #[path = "deniald/system_controls.rs"]
 mod system_controls;
 #[cfg(feature = "flutter")]
@@ -114,6 +120,9 @@ mod window_placement_store;
 #[cfg(feature = "flutter")]
 #[path = "deniald/wire.rs"]
 mod wire;
+#[cfg(feature = "flutter")]
+#[path = "deniald/xcursor_sentinel.rs"]
+mod xcursor_sentinel;
 #[cfg(feature = "flutter")]
 #[path = "deniald/xembed_tray.rs"]
 mod xembed_tray;
@@ -192,15 +201,15 @@ use flutter_scene_sync::{
 #[cfg(feature = "flutter")]
 use flutter_service_sync::{
     publish_software_keyboard_state, synchronize_authentication_boundary, synchronize_clipboard,
-    synchronize_notification_events, synchronize_shell_keyboard, synchronize_system_control_events,
-    synchronize_xembed_tray,
+    synchronize_fingerprint_display_wake, synchronize_notification_events,
+    synchronize_shell_keyboard, synchronize_system_control_events, synchronize_xembed_tray,
 };
 #[cfg(feature = "flutter")]
 use flutter_session::{
-    ActiveOutputConfirmation, begin_output_confirmation, cancel_active_screenshot,
-    install_ready_fence_watch, install_sampled_buffer_releases, quiesce_flutter_page_flips,
-    reload_flutter_runtime, screenshot_buffer_modifier, screenshot_composite_sources,
-    submit_ready_frames,
+    ActiveOutputConfirmation, FlutterReloadOutcome, begin_output_confirmation,
+    cancel_active_screenshot, install_ready_fence_watch, install_sampled_buffer_releases,
+    quiesce_flutter_page_flips, reload_flutter_runtime, screenshot_buffer_modifier,
+    screenshot_composite_sources, submit_ready_frames,
 };
 #[cfg(feature = "flutter")]
 use flutter_settings_sync::{
@@ -311,20 +320,23 @@ const MAX_FLUTTER_EVENTS_PER_ITERATION: usize = 128;
 #[cfg(feature = "flutter")]
 fn render_audit_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        matches!(
-            std::env::var("DENIA_RENDER_AUDIT")
-                .ok()
-                .as_deref()
-                .map(str::trim)
-                .map(str::to_ascii_lowercase)
-                .as_deref(),
-            Some("1" | "true" | "yes" | "on")
-        )
-    })
+    *ENABLED.get_or_init(|| denial_core::environment::flag("DENIAL_RENDER_AUDIT"))
 }
 
 fn main() {
+    #[cfg(feature = "flutter")]
+    if std::env::args_os()
+        .skip(1)
+        .eq([std::ffi::OsString::from("--fingerprint-settings")])
+    {
+        if let Err(error) = authentication::fingerprint_settings::run() {
+            println!("{}", serde_json::json!({"event":"unavailable"}));
+            eprintln!("deniald fingerprint settings: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     if let Err(error) = denial_main() {
         // Returning Result::Err from main becomes status 1, which display
         // managers can mistake for an orderly session exit. Preserve the
@@ -336,13 +348,19 @@ fn main() {
 }
 
 fn denial_main() -> Result<(), Box<dyn Error>> {
+    install_legacy_denial_environment_aliases();
     let options = Options::parse()?;
+    #[cfg(feature = "flutter")]
+    if options.wayland && options.flutter_bundle.is_some() {
+        xcursor_sentinel::install()?;
+    }
     if options.start_locked {
         // SAFETY: option parsing happens on the process's only thread, before
         // libseat, authentication, Flutter, or any other worker is started.
         // Dart reads this once to make its very first visual state match the
         // already-locked native security gate.
         unsafe {
+            std::env::set_var("DENIAL_START_LOCKED", "1");
             std::env::set_var("DENIA_START_LOCKED", "1");
         }
     }
@@ -369,4 +387,21 @@ fn denial_main() -> Result<(), Box<dyn Error>> {
         }
     }
     run(options)
+}
+
+fn install_legacy_denial_environment_aliases() {
+    let aliases = std::env::vars_os()
+        .filter_map(|(name, value)| {
+            let suffix = name.to_str()?.strip_prefix("DENIAL_")?;
+            Some((format!("DENIA_{suffix}"), value))
+        })
+        .collect::<Vec<_>>();
+    // SAFETY: denial_main calls this before option parsing starts libseat,
+    // Flutter, graphics drivers, or any worker thread. Canonical values win
+    // so the pinned engine's legacy getenv calls observe the same setting.
+    unsafe {
+        for (legacy, value) in aliases {
+            std::env::set_var(legacy, value);
+        }
+    }
 }

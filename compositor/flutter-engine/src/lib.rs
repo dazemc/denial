@@ -176,6 +176,7 @@ pub enum EngineError {
         result: sys::FlutterEngineResult,
     },
     NullHandle(&'static str),
+    RenderThreadShutdown,
 }
 
 impl fmt::Display for EngineError {
@@ -192,6 +193,9 @@ impl fmt::Display for EngineError {
             }
             Self::NullHandle(operation) => {
                 write!(formatter, "Flutter {operation} returned a null handle")
+            }
+            Self::RenderThreadShutdown => {
+                write!(formatter, "Flutter render-thread shutdown cleanup failed")
             }
         }
     }

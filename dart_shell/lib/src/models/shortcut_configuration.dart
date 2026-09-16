@@ -12,6 +12,7 @@ enum DenialShortcutAction {
   minimizeAllWindows,
   toggleMaximize,
   toggleFullscreen,
+  toggleWindowAlwaysOnTop,
   releasePointer,
   lockScreen,
   volumeUp,
